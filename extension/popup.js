@@ -2393,13 +2393,51 @@ const CARPET_PLAYLIST = [
 ];
 
 const RELAX_VIDEOS = {
-  carpet: `https://www.youtube.com/embed/${CARPET_PLAYLIST[0]}?autoplay=1&mute=1&loop=1&playlist=${CARPET_PLAYLIST.join(',')}`,
+  carpet: `https://www.youtube.com/embed/${CARPET_PLAYLIST[0]}?autoplay=1&mute=1&enablejsapi=1`,
   soap: 'https://www.youtube.com/embed/V6_V9n5X4oQ?autoplay=1&mute=1&loop=1&playlist=V6_V9n5X4oQ',
   subway: 'https://www.youtube.com/embed/42_xee_vjM0?autoplay=1&mute=1&loop=1&playlist=42_xee_vjM0',
   sand: 'https://www.youtube.com/embed/qL_fH_xH5Jg?autoplay=1&mute=1&loop=1&playlist=qL_fH_xH5Jg'
 };
 
+let currentCarpetIndex = 0;
+let isYoutubeListenerAdded = false;
+let isCarpetActive = false;
+
+function playNextCarpetVideo() {
+  if (!isCarpetActive) return;
+  currentCarpetIndex = (currentCarpetIndex + 1) % CARPET_PLAYLIST.length;
+  const nextVideoId = CARPET_PLAYLIST[currentCarpetIndex];
+  if (relaxVideoPlayer) {
+    relaxVideoPlayer.src = `https://www.youtube.com/embed/${nextVideoId}?autoplay=1&mute=1&enablejsapi=1`;
+    console.log(`[ASMR] Переключение на следующее видео ковров (индекс ${currentCarpetIndex}): ${nextVideoId}`);
+  }
+}
+
+function initYoutubeListener() {
+  if (isYoutubeListenerAdded) return;
+  window.addEventListener('message', (event) => {
+    // Проверяем, что сообщение пришло от домена youtube.com
+    if (!event.origin.includes('youtube.com')) return;
+    
+    try {
+      let data = event.data;
+      if (typeof data === 'string') {
+        data = JSON.parse(data);
+      }
+      
+      // Событие onStateChange: 0 означает видео закончилось (ended)
+      if (data && data.event === 'onStateChange' && data.info === 0) {
+        playNextCarpetVideo();
+      }
+    } catch (e) {
+      // Игнорируем ошибки парсинга для не-youtube сообщений
+    }
+  });
+  isYoutubeListenerAdded = true;
+}
+
 function stopRelaxVideo() {
+  isCarpetActive = false;
   if (relaxVideoPlayer) {
     relaxVideoPlayer.src = '';
     relaxVideoPlayer.style.display = 'none';
@@ -2494,9 +2532,19 @@ document.querySelectorAll('.relax-video-btn').forEach(btn => {
     btn.style.color = 'var(--tab-active-text)';
 
     const videoKey = btn.getAttribute('data-video');
-    const embedUrl = RELAX_VIDEOS[videoKey];
-    if (embedUrl && relaxVideoPlayer) {
-      relaxVideoPlayer.src = embedUrl;
+    if (relaxVideoPlayer) {
+      if (videoKey === 'carpet') {
+        isCarpetActive = true;
+        currentCarpetIndex = 0;
+        initYoutubeListener();
+        relaxVideoPlayer.src = `https://www.youtube.com/embed/${CARPET_PLAYLIST[0]}?autoplay=1&mute=1&enablejsapi=1`;
+      } else {
+        isCarpetActive = false;
+        const embedUrl = RELAX_VIDEOS[videoKey];
+        if (embedUrl) {
+          relaxVideoPlayer.src = embedUrl;
+        }
+      }
       relaxVideoPlayer.style.display = 'block';
       if (relaxPlayerPlaceholder) {
         relaxPlayerPlaceholder.style.display = 'none';
