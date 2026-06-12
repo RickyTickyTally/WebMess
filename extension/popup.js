@@ -483,6 +483,11 @@ function connectToChat(url, nickname) {
     const telegram = storageData.telegram || '';
     const discord = storageData.discord || '';
 
+    // Инициализируем данные локального игрока
+    localPlayer.nickname = nickname;
+    localPlayer.badge = badge;
+    localPlayer.color = color;
+
     socket = io(SERVER_URL, { transports: ['websocket'] });
 
     socket.on('disconnect', () => {
@@ -2354,6 +2359,7 @@ async function sendGameUpdate() {
   if (socket && aesKey) {
     try {
       const payload = await encryptText(JSON.stringify({
+        nickname: localPlayer.nickname,
         x: localPlayer.x,
         y: localPlayer.y,
         angle: localPlayer.angle,
