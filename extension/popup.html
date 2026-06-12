@@ -572,6 +572,9 @@
       background: #adb5bd;
       border-radius: 4px;
     }
+    .game-sub-tabs-container::-webkit-scrollbar {
+      display: none;
+    }
 
     /* Стили для Telegram/Steam профиля */
     .profile-field-group {
@@ -982,18 +985,19 @@
 
     <!-- 5. Экран игры (PVP / Шахта) -->
     <div id="games-screen" class="screen" style="justify-content: flex-start; box-sizing: border-box; height: 100%;">
-      <div class="header" style="padding: 10px 16px; display: flex; justify-content: space-between; align-items: center; box-sizing: border-box;">
-        <div style="display: flex; align-items: center; gap: 8px;">
-          <span style="font-weight: bold;">🎮 Игры</span>
-          <button id="game-fullscreen-btn" style="padding: 3px 6px; font-size: 10px; border-radius: 4px; font-weight: bold; cursor: pointer; border: 1px solid var(--border-color); background: var(--button-bg); color: var(--button-text); outline: none; transition: opacity 0.2s;" title="Открыть во весь экран в новой вкладке">Экран 🖥️</button>
+      <div class="header" style="padding: 8px 12px; display: flex; flex-direction: column; gap: 8px; box-sizing: border-box; width: 100%; border-bottom: 1px solid var(--border-color);">
+        <!-- Row 1: Title and Fullscreen Button -->
+        <div style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
+          <span style="font-weight: bold; font-size: 14px;">🎮 Игры</span>
+          <button id="game-fullscreen-btn" style="padding: 4px 8px; font-size: 10px; border-radius: 4px; font-weight: bold; cursor: pointer; border: 1px solid var(--border-color); background: var(--button-bg); color: var(--button-text); outline: none; transition: opacity 0.2s;" title="Открыть во весь экран в новой вкладке">Экран 🖥️</button>
         </div>
-        <!-- Кнопки выбора игры -->
-        <div style="display: flex; gap: 6px;">
-          <button id="game-tab-pvp" class="game-sub-tab active" style="padding: 4px 8px; font-size: 11px; border-radius: 4px; font-weight: bold; cursor: pointer; border: 1px solid var(--border-color); background: var(--tab-active-bg); color: var(--tab-active-text); outline: none;">PVP Арена</button>
-          <button id="game-tab-clicker" class="game-sub-tab" style="padding: 4px 8px; font-size: 11px; border-radius: 4px; font-weight: bold; cursor: pointer; border: 1px solid var(--border-color); background: transparent; color: var(--text-color); outline: none;">Шахта (Clicker)</button>
-          <button id="game-tab-relax" class="game-sub-tab" style="padding: 4px 8px; font-size: 11px; border-radius: 4px; font-weight: bold; cursor: pointer; border: 1px solid var(--border-color); background: transparent; color: var(--text-color); outline: none;">Релакс (ASMR)</button>
-          <button id="game-tab-bottle" class="game-sub-tab" style="padding: 4px 8px; font-size: 11px; border-radius: 4px; font-weight: bold; cursor: pointer; border: 1px solid var(--border-color); background: transparent; color: var(--text-color); outline: none;">Бутылочка</button>
-          <button id="game-tab-shop" class="game-sub-tab" style="padding: 4px 8px; font-size: 11px; border-radius: 4px; font-weight: bold; cursor: pointer; border: 1px solid var(--border-color); background: transparent; color: var(--text-color); outline: none;">Магазин 🛍️</button>
+        <!-- Row 2: Scrollable sub-tabs -->
+        <div class="game-sub-tabs-container" style="display: flex; gap: 6px; overflow-x: auto; width: 100%; padding-bottom: 4px; -webkit-overflow-scrolling: touch;">
+          <button id="game-tab-pvp" class="game-sub-tab active" style="padding: 4px 8px; font-size: 11px; border-radius: 4px; font-weight: bold; cursor: pointer; border: 1px solid var(--border-color); background: var(--tab-active-bg); color: var(--tab-active-text); outline: none; flex-shrink: 0;">PVP Арена</button>
+          <button id="game-tab-clicker" class="game-sub-tab" style="padding: 4px 8px; font-size: 11px; border-radius: 4px; font-weight: bold; cursor: pointer; border: 1px solid var(--border-color); background: transparent; color: var(--text-color); outline: none; flex-shrink: 0;">Шахта (Clicker)</button>
+          <button id="game-tab-relax" class="game-sub-tab" style="padding: 4px 8px; font-size: 11px; border-radius: 4px; font-weight: bold; cursor: pointer; border: 1px solid var(--border-color); background: transparent; color: var(--text-color); outline: none; flex-shrink: 0;">Релакс (ASMR)</button>
+          <button id="game-tab-bottle" class="game-sub-tab" style="padding: 4px 8px; font-size: 11px; border-radius: 4px; font-weight: bold; cursor: pointer; border: 1px solid var(--border-color); background: transparent; color: var(--text-color); outline: none; flex-shrink: 0;">Бутылочка</button>
+          <button id="game-tab-shop" class="game-sub-tab" style="padding: 4px 8px; font-size: 11px; border-radius: 4px; font-weight: bold; cursor: pointer; border: 1px solid var(--border-color); background: transparent; color: var(--text-color); outline: none; flex-shrink: 0;">Магазин 🛍️</button>
         </div>
       </div>
       
