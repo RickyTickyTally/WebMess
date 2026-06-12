@@ -87,11 +87,14 @@ const shopCoinsDisplay = document.getElementById('shop-coins-display');
 const shopTaskPro = document.getElementById('shop-task-pro');
 const shopTaskLightning = document.getElementById('shop-task-lightning');
 
-const relaxMusicStatus = document.getElementById('relax-music-status');
-const relaxMusicTitle = document.getElementById('relax-music-title');
-const relaxMusicBy = document.getElementById('relax-music-by');
-const musicUrlInput = document.getElementById('music-url-input');
-const musicOrderBtn = document.getElementById('music-order-btn');
+const bottleMusicStatus = document.getElementById('bottle-music-status');
+const bottleMusicTitle = document.getElementById('bottle-music-title');
+const bottleMusicBy = document.getElementById('bottle-music-by');
+const bottleMusicInput = document.getElementById('bottle-music-input');
+const bottleMusicOrderBtn = document.getElementById('bottle-music-order-btn');
+const bottleMusicPriorityBtn = document.getElementById('bottle-music-priority-btn');
+const bottleMusicMuteBtn = document.getElementById('bottle-music-mute-btn');
+let isLocallyMuted = false;
 
 let isGameActive = false;
 let roomMusicTimer = null;
@@ -2624,9 +2627,6 @@ if (gameTabPvp && gameTabClicker && gameTabRelax && gameTabBottle && gameTabShop
   gameTabRelax.addEventListener('click', () => {
     leaveBottleGameClient();
     selectSubTab(gameTabRelax, gamesPanelRelax);
-    if (roomMusicVideoId) {
-      playRoomMusic(roomMusicVideoId);
-    }
   });
 
   gameTabBottle.addEventListener('click', () => {
@@ -3273,59 +3273,103 @@ function extractYoutubeVideoId(url) {
   return (match && match[2].length === 11) ? match[2] : url.trim();
 }
 
-if (musicOrderBtn) {
-  musicOrderBtn.addEventListener('click', async () => {
-    if (!musicUrlInput) return;
-    const inputVal = musicUrlInput.value.trim();
-    if (!inputVal) {
-      alert('Пожалуйста, введите ID или ссылку на YouTube видео.');
+async function orderMusic(isPriority) {
+  if (!bottleMusicInput) return;
+  const inputVal = bottleMusicInput.value.trim();
+  if (!inputVal) {
+    alert('Пожалуйста, введите ID или ссылку на YouTube видео.');
+    return;
+  }
+
+  const videoId = extractYoutubeVideoId(inputVal);
+  if (!videoId || videoId.length !== 11) {
+    alert('Некорректная ссылка или ID видео YouTube.');
+    return;
+  }
+
+  const cost = isPriority ? 150 : 50;
+
+  if (isRoomMusicPlaying && !isPriority) {
+    alert('Сейчас играет музыка. Обычный заказ невозможен! Перебить текущий трек можно только вне очереди за 150 🪙 (требуется Premium-аккаунт).');
+    return;
+  }
+
+  if (isPriority) {
+    const isPremium = (premiumCheckbox && premiumCheckbox.checked) || (profilePremiumCheckbox && profilePremiumCheckbox.checked);
+    if (!isPremium) {
+      alert('Функция "Вне очереди" доступна только для Premium-пользователей! Вы можете активировать Premium в профиле.');
+      return;
+    }
+  }
+
+  chrome.storage.local.get(['clickerCoins'], async (res) => {
+    const coins = res.clickerCoins || 0;
+    if (coins < cost) {
+      alert(`Недостаточно монет! Требуется ${cost} 🪙.`);
       return;
     }
 
-    const videoId = extractYoutubeVideoId(inputVal);
-    if (!videoId || videoId.length !== 11) {
-      alert('Некорректная ссылка или ID видео YouTube.');
-      return;
+    const oembedUrl = `https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${videoId}&format=json`;
+    try {
+      const response = await fetch(oembedUrl);
+      if (!response.ok) throw new Error('Video info not found');
+      const data = await response.json();
+      const title = data.title || 'Заказанный трек';
+
+      const newCoins = coins - cost;
+      chrome.storage.local.set({ clickerCoins: newCoins }, async () => {
+        clickerCoins = newCoins;
+        updateClickerUi();
+        updateShopUi();
+        sendClickerStats();
+
+        try {
+          const orderPayload = await encryptText(JSON.stringify({
+            videoId,
+            title,
+            cost,
+            isPriority
+          }), aesKey);
+          socket.emit('order_music', orderPayload);
+          bottleMusicInput.value = '';
+        } catch (err) {
+          console.error('Ошибка шифрования заказа музыки:', err);
+        }
+      });
+    } catch (err) {
+      alert('Не удалось получить информацию о видео. Проверьте правильность ссылки или ID.');
     }
-
-    chrome.storage.local.get(['clickerCoins'], async (res) => {
-      const coins = res.clickerCoins || 0;
-      if (coins < 50) {
-        alert('Недостаточно монет! Заказ музыки стоит 50 🪙.');
-        return;
-      }
-
-      const oembedUrl = `https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${videoId}&format=json`;
-      try {
-        const response = await fetch(oembedUrl);
-        if (!response.ok) throw new Error('Video info not found');
-        const data = await response.json();
-        const title = data.title || 'Заказанный трек';
-
-        const newCoins = coins - 50;
-        chrome.storage.local.set({ clickerCoins: newCoins }, async () => {
-          clickerCoins = newCoins;
-          updateClickerUi();
-          updateShopUi();
-          sendClickerStats();
-
-          try {
-            const orderPayload = await encryptText(JSON.stringify({
-              videoId,
-              title,
-              cost: 50
-            }), aesKey);
-            socket.emit('order_music', orderPayload);
-            musicUrlInput.value = '';
-          } catch (err) {
-            console.error('Ошибка шифрования заказа музыки:', err);
-          }
-        });
-      } catch (err) {
-        alert('Не удалось получить информацию о видео. Проверьте правильность ссылки или ID.');
-      }
-    });
   });
+}
+
+if (bottleMusicOrderBtn) {
+  bottleMusicOrderBtn.addEventListener('click', () => orderMusic(false));
+}
+
+if (bottleMusicPriorityBtn) {
+  bottleMusicPriorityBtn.addEventListener('click', () => orderMusic(true));
+}
+
+if (bottleMusicMuteBtn) {
+  bottleMusicMuteBtn.addEventListener('click', () => {
+    isLocallyMuted = !isLocallyMuted;
+    updateMuteButtonUi();
+
+    const globalPlayer = document.getElementById('global-music-player');
+    if (globalPlayer && globalPlayer.contentWindow) {
+      const command = isLocallyMuted ? 'mute' : 'unMute';
+      globalPlayer.contentWindow.postMessage(JSON.stringify({ event: 'command', func: command }), '*');
+      if (!isLocallyMuted) {
+        globalPlayer.contentWindow.postMessage(JSON.stringify({ event: 'command', func: 'setVolume', args: [100] }), '*');
+      }
+    }
+  });
+}
+
+function updateMuteButtonUi() {
+  if (bottleMusicMuteBtn) {
+    bottleMusicMuteBtn.textContent = isLocallyMuted ? '🔇 Звук: Выкл' : '🔊 Звук: Вкл';
+  }
 }
 
 function handleRoomMusicUpdate(music) {
@@ -3334,20 +3378,20 @@ function handleRoomMusicUpdate(music) {
     roomMusicTimer = null;
   }
 
-  const statusBlock = document.getElementById('relax-music-status');
-  const titleSpan = document.getElementById('relax-music-title');
-  const bySpan = document.getElementById('relax-music-by');
-
   if (music && music.videoId) {
     const timeLeft = music.expiresAt - Date.now();
     if (timeLeft > 0) {
-      if (statusBlock) statusBlock.style.display = 'block';
-      if (titleSpan) titleSpan.textContent = music.title;
-      if (bySpan) bySpan.textContent = music.orderedBy;
+      if (bottleMusicStatus) bottleMusicStatus.style.display = 'block';
+      if (bottleMusicTitle) bottleMusicTitle.textContent = music.title;
+      if (bottleMusicBy) bottleMusicBy.textContent = music.orderedBy;
 
-      if (gamesPanelRelax && gamesPanelRelax.style.display === 'flex') {
-        playRoomMusic(music.videoId);
+      // Если песня сменилась, принудительно включаем звук для всех
+      if (roomMusicVideoId !== music.videoId) {
+        isLocallyMuted = false;
+        updateMuteButtonUi();
       }
+
+      playRoomMusic(music.videoId);
 
       roomMusicTimer = setTimeout(() => {
         handleRoomMusicUpdate({ videoId: null });
@@ -3356,9 +3400,8 @@ function handleRoomMusicUpdate(music) {
       handleRoomMusicUpdate({ videoId: null });
     }
   } else {
-    if (statusBlock) statusBlock.style.display = 'none';
-
-    if (relaxVideoPlayer && isRoomMusicPlaying) {
+    if (bottleMusicStatus) bottleMusicStatus.style.display = 'none';
+    if (isRoomMusicPlaying) {
       stopRoomMusic();
     }
   }
@@ -3367,19 +3410,18 @@ function handleRoomMusicUpdate(music) {
 function playRoomMusic(videoId) {
   roomMusicVideoId = videoId;
   isRoomMusicPlaying = true;
-  isCarpetActive = false;
 
-  if (relaxVideoPlayer) {
-    relaxVideoPlayer.src = `https://www.youtube.com/embed/${videoId}?autoplay=1&mute=0&enablejsapi=1`;
-    relaxVideoPlayer.style.display = 'block';
-  }
-  if (relaxPlayerPlaceholder) {
-    relaxPlayerPlaceholder.style.display = 'none';
+  const globalPlayer = document.getElementById('global-music-player');
+  if (globalPlayer) {
+    globalPlayer.src = `https://www.youtube-nocookie.com/embed/${videoId}?autoplay=1&mute=${isLocallyMuted ? 1 : 0}&enablejsapi=1`;
   }
 }
 
 function stopRoomMusic() {
   isRoomMusicPlaying = false;
   roomMusicVideoId = null;
-  stopRelaxVideo();
+  const globalPlayer = document.getElementById('global-music-player');
+  if (globalPlayer) {
+    globalPlayer.src = '';
+  }
 }

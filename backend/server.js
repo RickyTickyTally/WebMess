@@ -911,7 +911,19 @@ io.on('connection', (socket) => {
     if (!key || !user) return;
     try {
       const decryptedStr = decryptPayload(encryptedPayload, key);
-      const { videoId, title, cost } = JSON.parse(decryptedStr);
+      const { videoId, title, cost, isPriority } = JSON.parse(decryptedStr);
+
+      // Проверка, играет ли сейчас музыка
+      const currentMusic = roomMusic.get(user.room);
+      const isPlaying = currentMusic && (currentMusic.expiresAt > Date.now());
+
+      if (isPlaying && !isPriority) {
+        return; // Обычным заказам нельзя прерывать музыку
+      }
+
+      if (isPriority && !user.isPremium) {
+        return; // Только премиум может перебивать вне очереди
+      }
 
       if (user.coins < cost) {
         return; // Недостаточно монет
@@ -951,10 +963,12 @@ io.on('connection', (socket) => {
 
       const systemMessage = {
         author: '🎵 Музыка',
-        text: `🎵 ${user.nickname} заказал трек: "${title}"`,
+        text: isPriority
+          ? `👑 ${user.nickname} вне очереди заказал трек: "${title}"`
+          : `🎵 ${user.nickname} заказал трек: "${title}"`,
         time: new Date().toISOString(),
-        badge: '🎵',
-        color: '#ffc107',
+        badge: isPriority ? '👑' : '🎵',
+        color: isPriority ? '#ff9f1c' : '#ffc107',
         avatar: '',
         telegram: '',
         discord: ''
