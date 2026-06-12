@@ -240,6 +240,26 @@ io.on('connection', (socket) => {
       if (ownedRooms.has(room)) {
         const settings = ownedRooms.get(room);
         socket.emit('room_settings', encryptPayload(JSON.stringify(settings), key));
+
+        // Если в комнате настроено приветствие, отправляем его новому участнику в чат через 1 секунду
+        if (settings.welcomeMessage) {
+          setTimeout(() => {
+            const welcomeMsgData = {
+              author: '📢 Система',
+              text: settings.welcomeMessage,
+              time: new Date().toISOString(),
+              badge: '📢',
+              color: '#0d6efd',
+              avatar: '',
+              telegram: '',
+              discord: ''
+            };
+            const currentKey = socketKeys.get(socket.id);
+            if (currentKey) {
+              socket.emit('receive_message', encryptPayload(JSON.stringify(welcomeMsgData), currentKey));
+            }
+          }, 1000);
+        }
       } else {
         socket.emit('room_settings', encryptPayload(JSON.stringify({ owner: null }), key));
       }
@@ -285,6 +305,34 @@ io.on('connection', (socket) => {
       
       // Рассылаем сообщение (каждому со своим ключом)
       broadcastToRoom(user.room, 'receive_message', messageData);
+
+      // --- КОНСТРУКТОР БОТОВ (UGC BOT) ---
+      const roomSettings = ownedRooms.get(user.room);
+      if (roomSettings && roomSettings.botConfig && Array.isArray(roomSettings.botConfig)) {
+        const lowerText = text.toLowerCase();
+        for (const rule of roomSettings.botConfig) {
+          if (rule.trigger && rule.response && lowerText.startsWith(rule.trigger.toLowerCase())) {
+            setTimeout(() => {
+              const replyText = rule.response.replace(/{username}/g, user.nickname);
+              const botMessage = {
+                author: '🤖 Авто-Бот',
+                text: replyText,
+                time: new Date().toISOString(),
+                badge: '🤖',
+                color: '#ffc107',
+                avatar: '',
+                telegram: '',
+                discord: ''
+              };
+              if (roomHistories.has(user.room)) {
+                roomHistories.get(user.room).push(botMessage);
+              }
+              broadcastToRoom(user.room, 'receive_message', botMessage);
+            }, 1000);
+            break;
+          }
+        }
+      }
     } catch (err) {
       console.error(`Ошибка обработки сообщения от сокета ${socket.id}:`, err);
     }
@@ -320,10 +368,23 @@ io.on('connection', (socket) => {
       const currentSettings = ownedRooms.get(user.room);
       if (currentSettings && currentSettings.owner === user.nickname) {
         currentSettings.theme = newSettings.theme || currentSettings.theme;
+        currentSettings.bgUrl = newSettings.bgUrl !== undefined ? newSettings.bgUrl : currentSettings.bgUrl;
+        currentSettings.accentColor = newSettings.accentColor !== undefined ? newSettings.accentColor : currentSettings.accentColor;
+        currentSettings.welcomeMessage = newSettings.welcomeMessage !== undefined ? newSettings.welcomeMessage : currentSettings.welcomeMessage;
+        currentSettings.botConfig = newSettings.botConfig !== undefined ? newSettings.botConfig : currentSettings.botConfig;
+        currentSettings.gameMode = newSettings.gameMode !== undefined ? newSettings.gameMode : currentSettings.gameMode;
+        currentSettings.botCount = newSettings.botCount !== undefined ? newSettings.botCount : currentSettings.botCount;
+        
         ownedRooms.set(user.room, currentSettings);
         saveRooms();
-        console.log(`[UGC] Владелец ${user.nickname} обновил тему комнаты ${user.room} на ${currentSettings.theme}`);
+        console.log(`[UGC] Владелец ${user.nickname} обновил настройки комнаты ${user.room}`);
         broadcastToRoom(user.room, 'room_settings_updated', currentSettings);
+
+        // Если изменился принудительный игровой режим, обновляем его на бэкенде и уведомляем арену
+        if (newSettings.gameMode) {
+          roomModes.set(user.room, newSettings.gameMode);
+          broadcastToRoom(user.room, 'game_mode_updated', { mode: newSettings.gameMode });
+        }
       }
     } catch (err) {
       console.error(`Ошибка update_room_settings для сокета ${socket.id}:`, err);

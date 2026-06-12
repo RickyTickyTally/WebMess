@@ -1010,19 +1010,97 @@
         <div style="font-size: 16px; font-weight: bold;">Владелец: <span id="room-owner-name-display" style="color: var(--accent-color);"></span></div>
       </div>
 
-      <div id="room-owned-self-view" style="display: none; flex-direction: column; gap: 16px; text-align: left;">
-        <div style="text-align: center; font-size: 16px; font-weight: bold; margin-bottom: 8px;">Вы владелец этой комнаты 👑</div>
+      <div id="room-owned-self-view" style="display: none; flex-direction: column; gap: 12px; text-align: left; width: 100%;">
+        <div style="text-align: center; font-size: 15px; font-weight: bold; margin-bottom: 4px;">Вы владелец этой комнаты 👑</div>
         
-        <label class="profile-field-label">Тема комнаты (видят все)</label>
-        <div style="display: flex; gap: 8px; margin-bottom: 16px; flex-wrap: wrap;">
-          <button class="theme-select-btn room-theme-btn" data-theme="white">White</button>
-          <button class="theme-select-btn room-theme-btn" data-theme="black" style="background:#121212; color:white;">Black</button>
-          <button class="theme-select-btn room-theme-btn" data-theme="blue" style="background:#0b132b; color:#48cae4;">Blue</button>
-          <button class="theme-select-btn room-theme-btn" data-theme="purple" style="background:#120a2a; color:#c084fc;">Purple</button>
-          <button class="theme-select-btn room-theme-btn" data-theme="space" style="background:linear-gradient(90deg, #321a5c, #0d1e3d); color:#38bdf8; border:1px solid #6b46c1;">Space</button>
+        <!-- Вкладки студии -->
+        <div style="display: flex; border-bottom: 1px solid var(--border-color); margin-bottom: 8px; font-size: 12px;">
+          <div class="studio-tab active" data-target="studio-design" style="flex: 1; text-align: center; padding: 8px 0; cursor: pointer; font-weight: bold; border-bottom: 2px solid var(--accent-color); color: var(--accent-color);">Дизайн</div>
+          <div class="studio-tab" data-target="studio-chat" style="flex: 1; text-align: center; padding: 8px 0; cursor: pointer; font-weight: bold; border-bottom: 2px solid transparent; color: var(--text-muted);">Чат/Бот</div>
+          <div class="studio-tab" data-target="studio-games" style="flex: 1; text-align: center; padding: 8px 0; cursor: pointer; font-weight: bold; border-bottom: 2px solid transparent; color: var(--text-muted);">Игры</div>
         </div>
-        
-        <button id="save-room-settings-btn" style="padding: 10px; background-color: var(--accent-color); color: var(--tab-active-text); border: none; border-radius: 6px; cursor: pointer; font-weight: bold; margin-top: auto;">Сохранить настройки</button>
+
+        <!-- Содержимое вкладки Дизайн -->
+        <div id="studio-design" class="studio-panel" style="display: flex; flex-direction: column; gap: 10px;">
+          <div>
+            <label class="profile-field-label" style="font-size: 11px; margin-bottom: 4px; display: block;">Тема комнаты</label>
+            <div style="display: flex; gap: 6px; flex-wrap: wrap;">
+              <button class="theme-select-btn room-theme-btn" data-theme="white">White</button>
+              <button class="theme-select-btn room-theme-btn" data-theme="black" style="background:#121212; color:white;">Black</button>
+              <button class="theme-select-btn room-theme-btn" data-theme="blue" style="background:#0b132b; color:#48cae4;">Blue</button>
+              <button class="theme-select-btn room-theme-btn" data-theme="purple" style="background:#120a2a; color:#c084fc;">Purple</button>
+              <button class="theme-select-btn room-theme-btn" data-theme="space" style="background:linear-gradient(90deg, #321a5c, #0d1e3d); color:#38bdf8; border:1px solid #6b46c1;">Space</button>
+            </div>
+          </div>
+          <div>
+            <label class="profile-field-label" style="font-size: 11px; margin-bottom: 4px; display: block;">Фоновая картинка (URL)</label>
+            <input type="text" id="room-bg-url-input" class="profile-input" placeholder="https://example.com/image.png" style="font-size: 12px; padding: 6px 8px;">
+          </div>
+          <div>
+            <label class="profile-field-label" style="font-size: 11px; margin-bottom: 4px; display: block;">Акцентный цвет комнаты</label>
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <input type="color" id="room-accent-color-input" style="border: 1px solid var(--border-color); background: none; border-radius: 4px; width: 36px; height: 28px; padding: 0; cursor: pointer;">
+              <span style="font-size: 12px; color: var(--text-muted);">Например, для кнопок и ссылок</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Содержимое вкладки Чат/Бот -->
+        <div id="studio-chat" class="studio-panel" style="display: none; flex-direction: column; gap: 10px;">
+          <div>
+            <label class="profile-field-label" style="font-size: 11px; margin-bottom: 4px; display: block;">Приветствие при входе в чат</label>
+            <textarea id="room-welcome-input" class="profile-input" placeholder="Приветствуем нового участника чата!" style="height: 48px; resize: none; font-size: 12px; padding: 6px 8px; font-family: inherit;"></textarea>
+          </div>
+          
+          <div style="border-top: 1px dashed var(--border-color); padding-top: 8px; display: flex; flex-direction: column; gap: 6px;">
+            <label class="profile-field-label" style="font-size: 11px; font-weight: bold; margin-bottom: 2px;">Настройка Авто-Бота 🤖</label>
+            <div style="font-size: 10px; color: var(--text-muted); margin-bottom: 4px; line-height: 1.3;">
+              Укажите триггеры (ключевое слово) и что должен ответить бот. Можно использовать <code style="background: rgba(0,0,0,0.06); padding: 1px 3px; border-radius: 3px;">{username}</code>.
+            </div>
+            
+            <div style="display: flex; flex-direction: column; gap: 6px;" id="bot-rules-list">
+              <!-- Правило 1 -->
+              <div style="display: flex; gap: 6px; align-items: center; background: var(--sidebar-bg); padding: 6px; border-radius: 6px; border: 1px solid var(--border-color);">
+                <span style="font-size: 10px; font-weight: bold; color: var(--text-muted); min-width: 16px;">1</span>
+                <div style="flex: 1; display: flex; flex-direction: column; gap: 4px;">
+                  <input type="text" class="bot-trigger-input profile-input" placeholder="Команда (например: !привет)" style="font-size: 11px; padding: 4px 6px;">
+                  <input type="text" class="bot-response-input profile-input" placeholder="Ответ (например: Привет, {username}!)" style="font-size: 11px; padding: 4px 6px;">
+                </div>
+              </div>
+              
+              <!-- Правило 2 -->
+              <div style="display: flex; gap: 6px; align-items: center; background: var(--sidebar-bg); padding: 6px; border-radius: 6px; border: 1px solid var(--border-color);">
+                <span style="font-size: 10px; font-weight: bold; color: var(--text-muted); min-width: 16px;">2</span>
+                <div style="flex: 1; display: flex; flex-direction: column; gap: 4px;">
+                  <input type="text" class="bot-trigger-input profile-input" placeholder="Команда (например: !правила)" style="font-size: 11px; padding: 4px 6px;">
+                  <input type="text" class="bot-response-input profile-input" placeholder="Ответ бота" style="font-size: 11px; padding: 4px 6px;">
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Содержимое вкладки Игры -->
+        <div id="studio-games" class="studio-panel" style="display: none; flex-direction: column; gap: 10px;">
+          <div>
+            <label class="profile-field-label" style="font-size: 11px; margin-bottom: 4px; display: block;">Режим по умолчанию</label>
+            <select id="room-game-mode-input" style="width: 100%; padding: 6px 8px; border-radius: 6px; border: 1px solid var(--border-color); background: var(--input-bg); color: var(--text-color); font-size: 12px; outline: none;">
+              <option value="">Не принуждать (свободный выбор)</option>
+              <option value="ffa">FFA (Каждый сам за себя)</option>
+              <option value="team">TDM (Командный бой)</option>
+              <option value="infection">Инфекция (Зомби-режим)</option>
+            </select>
+          </div>
+          <div>
+            <label class="profile-field-label" style="font-size: 11px; margin-bottom: 4px; display: block;">Лимит ботов на арене</label>
+            <div style="display: flex; align-items: center; gap: 10px;">
+              <input type="number" id="room-bot-count-input" class="profile-input" min="0" max="10" placeholder="4" style="width: 60px; font-size: 12px; padding: 6px 8px; text-align: center;">
+              <span style="font-size: 12px; color: var(--text-muted);">Сколько ботов спавнить в игре</span>
+            </div>
+          </div>
+        </div>
+
+        <button id="save-room-settings-btn" style="padding: 10px; background-color: var(--accent-color); color: var(--tab-active-text); border: none; border-radius: 6px; cursor: pointer; font-weight: bold; margin-top: 8px;">Сохранить настройки</button>
       </div>
       
       <button id="close-room-settings-btn" style="margin-top: 16px; padding: 8px; background: transparent; color: var(--text-muted); border: 1px solid var(--border-color); border-radius: 6px; cursor: pointer;">Назад в чат</button>

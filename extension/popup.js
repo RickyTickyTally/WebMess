@@ -299,6 +299,17 @@ function appendMessageToUi(msg, autoScroll = true) {
   const { author, text, time, badge, color, avatar, telegram, discord } = msg;
   const msgRow = document.createElement('div');
   
+  if (author === 'System' || author === 'Система' || author === '📢 Система') {
+    msgRow.className = 'message-row system';
+    const safeText = text.replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    msgRow.innerHTML = `<div style="margin: 6px auto; background: var(--sidebar-bg); border: 1px solid var(--border-color); color: var(--text-color); font-size: 11px; padding: 4px 12px; border-radius: 12px; text-align: center; max-width: 85%; font-weight: 500; opacity: 0.95; box-shadow: 0 1px 3px rgba(0,0,0,0.05);">${safeText}</div>`;
+    messagesContainer.appendChild(msgRow);
+    if (autoScroll) {
+      messagesContainer.scrollTop = messagesContainer.scrollHeight;
+    }
+    return;
+  }
+  
   // Определяем, наше ли это сообщение
   const isSelf = author === currentNickname;
   msgRow.className = `message-row ${isSelf ? 'self' : 'other'}`;
@@ -1344,7 +1355,11 @@ function handleKeyUp(e) {
 
 function manageBots() {
   const activeHumanPlayersCount = gamePlayers.size + 1;
-  const targetBotsCount = activeHumanPlayersCount >= 3 ? 0 : (4 - activeHumanPlayersCount);
+  let maxBots = 4;
+  if (currentRoomSettings && typeof currentRoomSettings.botCount === 'number') {
+    maxBots = currentRoomSettings.botCount;
+  }
+  const targetBotsCount = Math.max(0, maxBots - activeHumanPlayersCount);
   
   while (gameBots.length < targetBotsCount) {
     const botId = 'bot_' + Math.random().toString(36).substr(2, 9);
@@ -1841,7 +1856,12 @@ let selectedRoomTheme = 'white';
 
 if (roomManageBtn) {
   roomManageBtn.addEventListener('click', () => {
-    // Открываем экран управления комнатой
+    // Сбрасываем активную вкладку на Дизайн при открытии
+    const defaultTab = document.querySelector('.studio-tab[data-target="studio-design"]');
+    if (defaultTab) {
+      // Имитируем клик для переключения панелей и сброса стилей
+      defaultTab.click();
+    }
     updateRoomSettingsUi();
     showScreen('room-settings');
   });
@@ -1861,6 +1881,28 @@ if (claimRoomBtn) {
   });
 }
 
+// Переключение вкладок в Творческой студии
+document.querySelectorAll('.studio-tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    document.querySelectorAll('.studio-tab').forEach(t => {
+      t.classList.remove('active');
+      t.style.borderBottomColor = 'transparent';
+      t.style.color = 'var(--text-muted)';
+    });
+    tab.classList.add('active');
+    tab.style.borderBottomColor = 'var(--accent-color)';
+    tab.style.color = 'var(--accent-color)';
+
+    document.querySelectorAll('.studio-panel').forEach(panel => {
+      panel.style.display = 'none';
+    });
+    const targetPanel = document.getElementById(tab.dataset.target);
+    if (targetPanel) {
+      targetPanel.style.display = 'flex';
+    }
+  });
+});
+
 document.querySelectorAll('.room-theme-btn').forEach(btn => {
   btn.addEventListener('click', () => {
     selectedRoomTheme = btn.dataset.theme;
@@ -1874,7 +1916,36 @@ if (saveRoomSettingsBtn) {
   saveRoomSettingsBtn.addEventListener('click', async () => {
     if (socket && aesKey) {
       try {
-        const payload = await encryptText(JSON.stringify({ theme: selectedRoomTheme }), aesKey);
+        const bgUrl = document.getElementById('room-bg-url-input').value.trim();
+        const accentColor = document.getElementById('room-accent-color-input').value;
+        const welcomeMessage = document.getElementById('room-welcome-input').value.trim();
+        
+        const botConfig = [];
+        const triggerInputs = document.querySelectorAll('.bot-trigger-input');
+        const responseInputs = document.querySelectorAll('.bot-response-input');
+        triggerInputs.forEach((input, index) => {
+          const trigger = input.value.trim();
+          const response = responseInputs[index].value.trim();
+          if (trigger && response) {
+            botConfig.push({ trigger, response });
+          }
+        });
+
+        const gameMode = document.getElementById('room-game-mode-input').value;
+        const botCountRaw = document.getElementById('room-bot-count-input').value.trim();
+        const botCount = botCountRaw !== '' ? parseInt(botCountRaw, 10) : null;
+
+        const payloadData = {
+          theme: selectedRoomTheme,
+          bgUrl: bgUrl || null,
+          accentColor: accentColor || null,
+          welcomeMessage: welcomeMessage || null,
+          botConfig: botConfig,
+          gameMode: gameMode || null,
+          botCount: botCount
+        };
+
+        const payload = await encryptText(JSON.stringify(payloadData), aesKey);
         socket.emit('update_room_settings', payload);
         showScreen('chat');
       } catch (err) {
@@ -1897,6 +1968,24 @@ function updateRoomSettingsUi() {
     document.querySelectorAll('.room-theme-btn').forEach(b => {
       b.classList.toggle('active', b.dataset.theme === selectedRoomTheme);
     });
+
+    document.getElementById('room-bg-url-input').value = currentRoomSettings.bgUrl || '';
+    document.getElementById('room-accent-color-input').value = currentRoomSettings.accentColor || '#0d6efd';
+    document.getElementById('room-welcome-input').value = currentRoomSettings.welcomeMessage || '';
+    
+    const botConfig = currentRoomSettings.botConfig || [];
+    const triggerInputs = document.querySelectorAll('.bot-trigger-input');
+    const responseInputs = document.querySelectorAll('.bot-response-input');
+    
+    triggerInputs.forEach((input, index) => {
+      input.value = botConfig[index] ? botConfig[index].trigger : '';
+    });
+    responseInputs.forEach((input, index) => {
+      input.value = botConfig[index] ? botConfig[index].response : '';
+    });
+
+    document.getElementById('room-game-mode-input').value = currentRoomSettings.gameMode || '';
+    document.getElementById('room-bot-count-input').value = currentRoomSettings.botCount !== undefined && currentRoomSettings.botCount !== null ? currentRoomSettings.botCount : '';
   } else {
     roomOwnedOtherView.style.display = 'flex';
     roomOwnerNameDisplay.textContent = currentRoomSettings.owner;
@@ -1921,11 +2010,67 @@ function applyRoomSettings(settings) {
     }
   }
 
-  // Применяем тему комнаты, если она задана, иначе возвращаем локальную тему пользователя
+  // Применяем тему комнаты
   if (settings.theme) {
     document.body.className = `theme-${settings.theme}`;
   } else {
     document.body.className = `theme-${originalTheme}`;
+  }
+
+  // Применяем фоновую картинку
+  const existingBgOverlay = document.getElementById('room-custom-bg');
+  if (settings.bgUrl) {
+    if (!existingBgOverlay) {
+      const bgOverlay = document.createElement('div');
+      bgOverlay.id = 'room-custom-bg';
+      bgOverlay.style.position = 'absolute';
+      bgOverlay.style.top = '0';
+      bgOverlay.style.left = '0';
+      bgOverlay.style.width = '100%';
+      bgOverlay.style.height = '100%';
+      bgOverlay.style.backgroundImage = `url(${settings.bgUrl})`;
+      bgOverlay.style.backgroundSize = 'cover';
+      bgOverlay.style.backgroundPosition = 'center';
+      bgOverlay.style.opacity = '0.15';
+      bgOverlay.style.zIndex = '-2';
+      bgOverlay.style.pointerEvents = 'none';
+      document.body.appendChild(bgOverlay);
+    } else {
+      existingBgOverlay.style.backgroundImage = `url(${settings.bgUrl})`;
+      existingBgOverlay.style.display = 'block';
+    }
+  } else {
+    if (existingBgOverlay) {
+      existingBgOverlay.style.display = 'none';
+    }
+  }
+
+  // Применяем кастомный акцентный цвет
+  const existingCustomStyle = document.getElementById('room-custom-style');
+  if (settings.accentColor) {
+    const cssContent = `
+      :root {
+        --accent-color: ${settings.accentColor} !important;
+        --button-bg: ${settings.accentColor} !important;
+      }
+    `;
+    if (!existingCustomStyle) {
+      const styleEl = document.createElement('style');
+      styleEl.id = 'room-custom-style';
+      styleEl.textContent = cssContent;
+      document.head.appendChild(styleEl);
+    } else {
+      existingCustomStyle.textContent = cssContent;
+    }
+  } else {
+    if (existingCustomStyle) {
+      existingCustomStyle.remove();
+    }
+  }
+
+  // Если владелец комнаты принудительно установил режим игры, применяем его
+  if (settings.gameMode) {
+    updateGameMode(settings.gameMode);
   }
   
   if (document.getElementById('room-settings-screen').style.display === 'flex') {
