@@ -27,6 +27,9 @@ const disconnectTimeouts = new Map();
 // Хранилище истории сообщений в комнатах (room -> Array)
 const roomHistories = new Map();
 
+// Хранилище режимов игры в комнатах (room -> mode)
+const roomModes = new Map();
+
 // Вспомогательная функция внедрения реферальных меток (CPA-партнерки)
 function injectReferralTags(text) {
   // Регулярное выражение для поиска URL ссылок
@@ -258,12 +261,125 @@ io.on('connection', (socket) => {
     }
   });
 
+  // Игровые события PVP
+  socket.on('get_game_rooms', () => {
+    const key = socketKeys.get(socket.id);
+    if (!key) return;
+    try {
+      const roomList = [];
+      const roomsWithPlayers = new Map();
+      
+      for (const u of users.values()) {
+        roomsWithPlayers.set(u.room, (roomsWithPlayers.get(u.room) || 0) + 1);
+      }
+      
+      for (const [r, count] of roomsWithPlayers.entries()) {
+        let roomDisplayName = r;
+        try {
+          if (r.startsWith('http')) {
+            roomDisplayName = new URL(r).hostname;
+          }
+        } catch(e) {}
+        
+        roomList.push({
+          room: r,
+          displayName: roomDisplayName,
+          count: count,
+          mode: roomModes.get(r) || 'ffa'
+        });
+      }
+      
+      const encrypted = encryptPayload(JSON.stringify(roomList), key);
+      socket.emit('game_rooms_list', encrypted);
+    } catch (err) {
+      console.error('Ошибка get_game_rooms:', err);
+    }
+  });
+
+  socket.on('game_join', (encryptedPayload) => {
+    const key = socketKeys.get(socket.id);
+    const user = users.get(socket.id);
+    if (!key || !user) return;
+    try {
+      const decryptedStr = decryptPayload(encryptedPayload, key);
+      const playerData = JSON.parse(decryptedStr);
+      playerData.id = socket.id;
+      broadcastToRoom(user.room, 'game_player_joined', playerData);
+    } catch (err) {
+      console.error('Ошибка game_join:', err);
+    }
+  });
+
+  socket.on('game_update', (encryptedPayload) => {
+    const key = socketKeys.get(socket.id);
+    const user = users.get(socket.id);
+    if (!key || !user) return;
+    try {
+      const decryptedStr = decryptPayload(encryptedPayload, key);
+      const updateData = JSON.parse(decryptedStr);
+      updateData.id = socket.id;
+      broadcastToRoom(user.room, 'game_player_updated', updateData);
+    } catch (err) {
+      console.error('Ошибка game_update:', err);
+    }
+  });
+
+  socket.on('game_shoot', (encryptedPayload) => {
+    const key = socketKeys.get(socket.id);
+    const user = users.get(socket.id);
+    if (!key || !user) return;
+    try {
+      const decryptedStr = decryptPayload(encryptedPayload, key);
+      const bulletData = JSON.parse(decryptedStr);
+      bulletData.id = socket.id;
+      broadcastToRoom(user.room, 'game_bullet_spawned', bulletData);
+    } catch (err) {
+      console.error('Ошибка game_shoot:', err);
+    }
+  });
+
+  socket.on('game_hit', (encryptedPayload) => {
+    const key = socketKeys.get(socket.id);
+    const user = users.get(socket.id);
+    if (!key || !user) return;
+    try {
+      const decryptedStr = decryptPayload(encryptedPayload, key);
+      const hitData = JSON.parse(decryptedStr);
+      broadcastToRoom(user.room, 'game_player_hit', hitData);
+    } catch (err) {
+      console.error('Ошибка game_hit:', err);
+    }
+  });
+
+  socket.on('game_mode_change', (encryptedPayload) => {
+    const key = socketKeys.get(socket.id);
+    const user = users.get(socket.id);
+    if (!key || !user) return;
+    try {
+      const decryptedStr = decryptPayload(encryptedPayload, key);
+      const { mode } = JSON.parse(decryptedStr);
+      roomModes.set(user.room, mode);
+      broadcastToRoom(user.room, 'game_mode_updated', { mode });
+    } catch (err) {
+      console.error('Ошибка game_mode_change:', err);
+    }
+  });
+
+  socket.on('game_leave', () => {
+    const user = users.get(socket.id);
+    if (!user) return;
+    broadcastToRoom(user.room, 'game_player_left', { id: socket.id });
+  });
+
   // Отключение пользователя
   socket.on('disconnect', () => {
     const user = users.get(socket.id);
     if (user) {
       const { room, nickname } = user;
       console.log(`[-] Запланировано отключение ${nickname} от комнаты ${room} через 30 секунд`);
+
+      // Немедленно убираем игрока из игры
+      broadcastToRoom(room, 'game_player_left', { id: socket.id });
 
       const timeoutId = setTimeout(() => {
         users.delete(socket.id);

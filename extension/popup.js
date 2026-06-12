@@ -48,6 +48,41 @@ const profileBirthdayInput = document.getElementById('profile-birthday-input');
 let originalTheme = 'white';
 let selectedTheme = 'white';
 
+const sidebarChatBtn = document.getElementById('sidebar-chat-btn');
+const sidebarGamesBtn = document.getElementById('sidebar-games-btn');
+const gamesScreen = document.getElementById('games-screen');
+const gameCanvas = document.getElementById('game-canvas');
+const gameCtx = gameCanvas.getContext('2d');
+const gameStartOverlay = document.getElementById('game-start-overlay');
+const gameJoinBtn = document.getElementById('game-join-btn');
+const gameQuitBtn = document.getElementById('game-quit-btn');
+const gameRoomsList = document.getElementById('game-rooms-list');
+const refreshRoomsBtn = document.getElementById('refresh-rooms-btn');
+
+let isGameActive = false;
+let currentGameMode = 'ffa';
+let localPlayer = {
+  id: '',
+  x: 100,
+  y: 100,
+  angle: 0,
+  nickname: '',
+  hp: 100,
+  score: 0,
+  deaths: 0,
+  team: 'ffa',
+  infected: false,
+  badge: '',
+  color: ''
+};
+let gamePlayers = new Map();
+let gameProjectiles = [];
+let gameBots = [];
+let keysPressed = {};
+let gameLoopId = null;
+let roomsListInterval = null;
+let gameUpdateInterval = null;
+
 const usersListContainer = document.getElementById('users-list-container');
 const usersCountText = document.getElementById('users-count-text');
 const avatarListContainer = document.getElementById('avatar-list-container');
@@ -632,6 +667,135 @@ function connectToChat(url, nickname) {
         console.error('Ошибка расшифровки сообщения:', err);
       }
     });
+
+    // Игровые события PVP
+    socket.on('game_player_joined', async (encryptedPayload) => {
+      try {
+        if (!aesKey) return;
+        const decryptedStr = await decryptText(encryptedPayload, aesKey);
+        const player = JSON.parse(decryptedStr);
+        if (player.id !== socket.id) {
+          gamePlayers.set(player.id, player);
+        }
+      } catch (err) {
+        console.error('Ошибка расшифровки game_player_joined:', err);
+      }
+    });
+
+    socket.on('game_player_updated', async (encryptedPayload) => {
+      try {
+        if (!aesKey) return;
+        const decryptedStr = await decryptText(encryptedPayload, aesKey);
+        const player = JSON.parse(decryptedStr);
+        if (player.id !== socket.id) {
+          gamePlayers.set(player.id, player);
+        }
+      } catch (err) {
+        console.error('Ошибка расшифровки game_player_updated:', err);
+      }
+    });
+
+    socket.on('game_bullet_spawned', async (encryptedPayload) => {
+      try {
+        if (!aesKey) return;
+        const decryptedStr = await decryptText(encryptedPayload, aesKey);
+        const bullet = JSON.parse(decryptedStr);
+        if (bullet.ownerId !== socket.id) {
+          gameProjectiles.push(bullet);
+        }
+      } catch (err) {
+        console.error('Ошибка расшифровки game_bullet_spawned:', err);
+      }
+    });
+
+    socket.on('game_player_hit', async (encryptedPayload) => {
+      try {
+        if (!aesKey) return;
+        const decryptedStr = await decryptText(encryptedPayload, aesKey);
+        const { targetId, damage, infect, shooterId } = JSON.parse(decryptedStr);
+        
+        if (targetId === socket.id) {
+          if (infect) {
+            localPlayer.infected = true;
+            localPlayer.hp = 100;
+            alert('Вы заражены! Теперь вы зомби! Заражайте выживших касанием!');
+          } else {
+            localPlayer.hp -= damage;
+            if (localPlayer.hp <= 0) {
+              localPlayer.hp = 0;
+              localPlayer.deaths++;
+              
+              const shooter = gamePlayers.get(shooterId) || gameBots.find(b => b.id === shooterId);
+              if (shooter) shooter.score = (shooter.score || 0) + 1;
+              
+              setTimeout(() => {
+                localPlayer.hp = 100;
+                localPlayer.x = Math.random() * 320 + 20;
+                localPlayer.y = Math.random() * 190 + 20;
+                if (currentGameMode === 'infection') {
+                  localPlayer.infected = false;
+                }
+              }, 2000);
+            }
+          }
+        } else {
+          const player = gamePlayers.get(targetId);
+          if (player) {
+            if (infect) {
+              player.infected = true;
+              player.hp = 100;
+            } else {
+              player.hp -= damage;
+              if (player.hp <= 0) {
+                player.hp = 0;
+                if (shooterId === socket.id) {
+                  localPlayer.score++;
+                  chrome.storage.local.get(['messagesSentCount'], (res) => {
+                    const count = (res.messagesSentCount || 0) + 1;
+                    chrome.storage.local.set({ messagesSentCount: count });
+                  });
+                }
+              }
+            }
+          }
+        }
+      } catch (err) {
+        console.error('Ошибка расшифровки game_player_hit:', err);
+      }
+    });
+
+    socket.on('game_player_left', async (encryptedPayload) => {
+      try {
+        if (!aesKey) return;
+        const decryptedStr = await decryptText(encryptedPayload, aesKey);
+        const { id } = JSON.parse(decryptedStr);
+        gamePlayers.delete(id);
+      } catch (err) {
+        console.error('Ошибка расшифровки game_player_left:', err);
+      }
+    });
+
+    socket.on('game_mode_updated', async (encryptedPayload) => {
+      try {
+        if (!aesKey) return;
+        const decryptedStr = await decryptText(encryptedPayload, aesKey);
+        const { mode } = JSON.parse(decryptedStr);
+        updateGameMode(mode);
+      } catch (err) {
+        console.error('Ошибка расшифровки game_mode_updated:', err);
+      }
+    });
+
+    socket.on('game_rooms_list', async (encryptedPayload) => {
+      try {
+        if (!aesKey) return;
+        const decryptedStr = await decryptText(encryptedPayload, aesKey);
+        const rooms = JSON.parse(decryptedStr);
+        renderGameRoomsList(rooms);
+      } catch (err) {
+        console.error('Ошибка расшифровки game_rooms_list:', err);
+      }
+    });
   });
 }
 
@@ -920,3 +1084,715 @@ async function init() {
 }
 
 document.addEventListener('DOMContentLoaded', init);
+
+// --- ИГРОВОЙ ДВИЖОК PVP ---
+
+sidebarChatBtn.addEventListener('click', () => {
+  sidebarGamesBtn.classList.remove('active');
+  sidebarChatBtn.classList.add('active');
+  
+  chrome.storage.local.get(['nickname'], (res) => {
+    if (res.nickname) {
+      showScreen('chat');
+    } else {
+      showScreen('auth');
+    }
+  });
+  
+  stopGame();
+  if (roomsListInterval) {
+    clearInterval(roomsListInterval);
+    roomsListInterval = null;
+  }
+});
+
+sidebarGamesBtn.addEventListener('click', () => {
+  sidebarChatBtn.classList.remove('active');
+  sidebarGamesBtn.classList.add('active');
+  
+  chrome.storage.local.get(['nickname', 'isPremium', 'premiumBadge', 'premiumColor'], (res) => {
+    if (!res.nickname) {
+      alert('Пожалуйста, введите никнейм и зайдите в чат перед началом игры!');
+      sidebarGamesBtn.classList.remove('active');
+      sidebarChatBtn.classList.add('active');
+      showScreen('auth');
+      return;
+    }
+    
+    localPlayer.nickname = res.nickname;
+    localPlayer.badge = res.isPremium ? (res.premiumBadge || '') : '';
+    localPlayer.color = res.isPremium ? (res.premiumColor || '') : '';
+    
+    showScreen('games');
+    
+    refreshLobbies();
+    if (roomsListInterval) clearInterval(roomsListInterval);
+    roomsListInterval = setInterval(refreshLobbies, 4000);
+  });
+});
+
+refreshRoomsBtn.addEventListener('click', refreshLobbies);
+
+function refreshLobbies() {
+  if (socket && aesKey) {
+    socket.emit('get_game_rooms');
+  }
+}
+
+function renderGameRoomsList(rooms) {
+  gameRoomsList.innerHTML = '';
+  if (rooms.length === 0) {
+    gameRoomsList.innerHTML = '<div style="font-size: 12px; color: var(--text-muted); text-align: center; padding: 4px;">Нет активных игр</div>';
+    return;
+  }
+  
+  rooms.forEach(r => {
+    const row = document.createElement('div');
+    row.style.display = 'flex';
+    row.style.justifyContent = 'space-between';
+    row.style.alignItems = 'center';
+    row.style.padding = '4px 6px';
+    row.style.background = 'var(--input-bg)';
+    row.style.borderRadius = '4px';
+    row.style.fontSize = '12px';
+    row.style.border = '1px solid var(--border-color)';
+    
+    const isCurrent = r.room === currentUrl;
+    
+    row.innerHTML = `
+      <span style="font-weight: bold; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 180px; color: ${isCurrent ? 'var(--accent-color)' : 'var(--text-color)'};">
+        ${r.displayName} ${isCurrent ? '(Вы тут)' : ''}
+      </span>
+      <div style="display: flex; align-items: center; gap: 8px;">
+        <span style="font-size: 10px; color: var(--text-muted); text-transform: uppercase;">${r.mode}</span>
+        <span style="background: var(--sidebar-header-bg); padding: 1px 6px; border-radius: 10px; font-weight: bold; color: var(--text-color);">
+          ${r.count}
+        </span>
+      </div>
+    `;
+    
+    if (!isCurrent) {
+      row.style.cursor = 'pointer';
+      row.addEventListener('click', () => {
+        if (isGameActive) {
+          alert('Сначала выйдите из игры!');
+          return;
+        }
+        switchChatRoom(r.room);
+        loadTabs();
+      });
+    }
+    
+    gameRoomsList.appendChild(row);
+  });
+}
+
+document.querySelectorAll('.game-mode-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    if (!isGameActive) {
+      const mode = btn.dataset.mode;
+      updateGameMode(mode);
+      sendGameModeChange(mode);
+    } else {
+      alert('Нельзя менять режим во время игры!');
+    }
+  });
+});
+
+function updateGameMode(mode) {
+  currentGameMode = mode;
+  document.querySelectorAll('.game-mode-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.mode === mode);
+  });
+  
+  const desc = document.getElementById('game-mode-desc');
+  if (mode === 'ffa') {
+    desc.textContent = 'FFA: Каждый сам за себя. Стреляйте во всех, зарабатывайте очки.';
+  } else if (mode === 'team') {
+    desc.textContent = 'TDM: Командный бой. Красные против Синих. Стреляйте по врагам.';
+  } else if (mode === 'infection') {
+    desc.textContent = 'Инфекция: Один игрок стартует зомби (зеленый) и заражает людей касанием. Люди могут отбиваться стрельбой.';
+  }
+}
+
+gameJoinBtn.addEventListener('click', startGame);
+gameQuitBtn.addEventListener('click', stopGame);
+
+gameCanvas.addEventListener('mousedown', (e) => {
+  if (!isGameActive || localPlayer.hp <= 0) return;
+  if (currentGameMode === 'infection' && localPlayer.infected) return;
+
+  const rect = gameCanvas.getBoundingClientRect();
+  const mouseX = e.clientX - rect.left;
+  const mouseY = e.clientY - rect.top;
+
+  const angle = Math.atan2(mouseY - localPlayer.y, mouseX - localPlayer.x);
+  shootBullet(localPlayer.x, localPlayer.y, angle, socket.id || 'self');
+});
+
+function startGame() {
+  isGameActive = true;
+  gameStartOverlay.style.display = 'none';
+  gameQuitBtn.style.display = 'block';
+  
+  localPlayer.hp = 100;
+  localPlayer.x = Math.random() * 300 + 35;
+  localPlayer.y = Math.random() * 180 + 25;
+  localPlayer.score = 0;
+  localPlayer.deaths = 0;
+  
+  if (currentGameMode === 'team') {
+    let redCount = 0;
+    let blueCount = 0;
+    gamePlayers.forEach(p => {
+      if (p.team === 'red') redCount++;
+      if (p.team === 'blue') blueCount++;
+    });
+    localPlayer.team = redCount <= blueCount ? 'red' : 'blue';
+    localPlayer.infected = false;
+  } else if (currentGameMode === 'infection') {
+    let infectedExists = false;
+    gamePlayers.forEach(p => {
+      if (p.infected) infectedExists = true;
+    });
+    localPlayer.infected = !infectedExists;
+  } else {
+    localPlayer.team = 'ffa';
+    localPlayer.infected = false;
+  }
+  
+  gameProjectiles = [];
+  gameBots = [];
+  keysPressed = {};
+  
+  sendGameJoin();
+  
+  window.addEventListener('keydown', handleKeyDown);
+  window.addEventListener('keyup', handleKeyUp);
+  
+  if (gameLoopId) cancelAnimationFrame(gameLoopId);
+  gameLoopId = requestAnimationFrame(gameLoop);
+  
+  if (gameUpdateInterval) clearInterval(gameUpdateInterval);
+  gameUpdateInterval = setInterval(() => {
+    if (isGameActive) sendGameUpdate();
+  }, 60);
+}
+
+function stopGame() {
+  isGameActive = false;
+  gameStartOverlay.style.display = 'flex';
+  gameQuitBtn.style.display = 'none';
+  
+  window.removeEventListener('keydown', handleKeyDown);
+  window.removeEventListener('keyup', handleKeyUp);
+  
+  if (gameLoopId) {
+    cancelAnimationFrame(gameLoopId);
+    gameLoopId = null;
+  }
+  
+  if (gameUpdateInterval) {
+    clearInterval(gameUpdateInterval);
+    gameUpdateInterval = null;
+  }
+  
+  if (socket && aesKey) {
+    socket.emit('game_leave');
+  }
+  
+  gamePlayers.clear();
+  gameProjectiles = [];
+  gameBots = [];
+  
+  gameCtx.clearRect(0, 0, gameCanvas.width, gameCanvas.height);
+}
+
+function handleKeyDown(e) {
+  keysPressed[e.code] = true;
+}
+
+function handleKeyUp(e) {
+  keysPressed[e.code] = false;
+}
+
+function manageBots() {
+  const activeHumanPlayersCount = gamePlayers.size + 1;
+  const targetBotsCount = activeHumanPlayersCount >= 3 ? 0 : (4 - activeHumanPlayersCount);
+  
+  while (gameBots.length < targetBotsCount) {
+    const botId = 'bot_' + Math.random().toString(36).substr(2, 9);
+    const botNames = ['CyberBot', 'NeonStrike', 'GlitchHunter', 'NullPointer', 'ByteSlayer'];
+    const nickname = botNames[Math.floor(Math.random() * botNames.length)];
+    
+    let botTeam = 'ffa';
+    let botInfected = false;
+    
+    if (currentGameMode === 'team') {
+      const redCount = (localPlayer.team === 'red' ? 1 : 0) + gameBots.filter(b => b.team === 'red').length;
+      const blueCount = (localPlayer.team === 'blue' ? 1 : 0) + gameBots.filter(b => b.team === 'blue').length;
+      botTeam = redCount <= blueCount ? 'red' : 'blue';
+    } else if (currentGameMode === 'infection') {
+      botInfected = !localPlayer.infected;
+    }
+    
+    gameBots.push({
+      id: botId,
+      nickname: nickname,
+      x: Math.random() * 330 + 20,
+      y: Math.random() * 190 + 20,
+      vx: 0,
+      vy: 0,
+      hp: 100,
+      angle: Math.random() * Math.PI * 2,
+      team: botTeam,
+      infected: botInfected,
+      isBot: true,
+      shootCooldown: Math.random() * 1.5,
+      wanderTimer: 0
+    });
+  }
+  
+  if (gameBots.length > targetBotsCount) {
+    gameBots.splice(targetBotsCount);
+  }
+}
+
+function updateBots() {
+  gameBots.forEach(bot => {
+    if (bot.hp <= 0) return;
+    
+    bot.wanderTimer -= 0.016;
+    bot.shootCooldown -= 0.016;
+    
+    let target = null;
+    
+    if (currentGameMode === 'ffa') {
+      target = localPlayer;
+    } else if (currentGameMode === 'team') {
+      if (localPlayer.team !== bot.team) {
+        target = localPlayer;
+      }
+    } else if (currentGameMode === 'infection') {
+      if (bot.infected) {
+        if (!localPlayer.infected) {
+          target = localPlayer;
+        }
+      } else {
+        if (localPlayer.infected) {
+          target = localPlayer;
+        }
+      }
+    }
+    
+    if (target && target.hp > 0) {
+      const dx = target.x - bot.x;
+      const dy = target.y - bot.y;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      
+      bot.angle = Math.atan2(dy, dx);
+      
+      const speed = bot.infected ? 2.6 : 2.0;
+      if (dist > 15) {
+        const factor = (currentGameMode === 'infection' && !bot.infected) ? -1 : 1;
+        bot.x += Math.cos(bot.angle) * speed * factor;
+        bot.y += Math.sin(bot.angle) * speed * factor;
+      }
+      
+      if (!bot.infected && bot.shootCooldown <= 0 && dist < 180) {
+        shootBullet(bot.x, bot.y, bot.angle, bot.id);
+        bot.shootCooldown = 1.2 + Math.random() * 0.8;
+      }
+      
+      if (currentGameMode === 'infection' && bot.infected && dist < 18) {
+        infectTarget(target, bot.id);
+      }
+    } else {
+      if (bot.wanderTimer <= 0) {
+        bot.vx = (Math.random() - 0.5) * 1.5;
+        bot.vy = (Math.random() - 0.5) * 1.5;
+        bot.wanderTimer = 1 + Math.random() * 2;
+      }
+      bot.x += bot.vx;
+      bot.y += bot.vy;
+      bot.angle = Math.atan2(bot.vy, bot.vx);
+    }
+    
+    bot.x = Math.max(10, Math.min(360, bot.x));
+    bot.y = Math.max(10, Math.min(220, bot.y));
+  });
+}
+
+function infectTarget(target, zombieId) {
+  if (currentGameMode !== 'infection') return;
+  
+  if (target === localPlayer && !localPlayer.infected) {
+    localPlayer.infected = true;
+    localPlayer.hp = 100;
+    sendGameHit(localPlayer.id, 0, true);
+    alert('Вы заражены зомби! Теперь вы зомби!');
+  } else if (target.isBot && !target.infected) {
+    target.infected = true;
+    target.hp = 100;
+  }
+}
+
+function shootBullet(x, y, angle, ownerId, color = null) {
+  const bx = x + Math.cos(angle) * 12;
+  const by = y + Math.sin(angle) * 12;
+  
+  let bulletColor = color || 'yellow';
+  if (currentGameMode === 'team') {
+    const owner = (ownerId === socket.id) ? localPlayer : (gamePlayers.get(ownerId) || gameBots.find(b => b.id === ownerId));
+    if (owner) {
+      bulletColor = owner.team === 'red' ? '#ff3333' : '#3333ff';
+    }
+  }
+  
+  const bullet = {
+    x: bx,
+    y: by,
+    vx: Math.cos(angle) * 6,
+    vy: Math.sin(angle) * 6,
+    ownerId: ownerId,
+    color: bulletColor
+  };
+  
+  gameProjectiles.push(bullet);
+  
+  if (ownerId === socket.id) {
+    sendGameShoot(bullet);
+  }
+}
+
+function updateProjectiles() {
+  for (let i = gameProjectiles.length - 1; i >= 0; i--) {
+    const p = gameProjectiles[i];
+    p.x += p.vx;
+    p.y += p.vy;
+    
+    if (p.x < 0 || p.x > gameCanvas.width || p.y < 0 || p.y > gameCanvas.height) {
+      gameProjectiles.splice(i, 1);
+      continue;
+    }
+    
+    if (p.ownerId !== socket.id && localPlayer.hp > 0) {
+      const dx = p.x - localPlayer.x;
+      const dy = p.y - localPlayer.y;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      
+      if (dist < 12) {
+        let friendly = false;
+        if (currentGameMode === 'team') {
+          const shooter = gamePlayers.get(p.ownerId) || gameBots.find(b => b.id === p.ownerId);
+          if (shooter && shooter.team === localPlayer.team) friendly = true;
+        }
+        
+        if (!friendly) {
+          localPlayer.hp -= 15;
+          gameProjectiles.splice(i, 1);
+          
+          if (localPlayer.hp <= 0) {
+            localPlayer.hp = 0;
+            localPlayer.deaths++;
+            
+            const shooter = gamePlayers.get(p.ownerId) || gameBots.find(b => b.id === p.ownerId);
+            if (shooter) shooter.score = (shooter.score || 0) + 1;
+            
+            sendGameHit(localPlayer.id, 15, false);
+            
+            setTimeout(() => {
+              localPlayer.hp = 100;
+              localPlayer.x = Math.random() * 320 + 20;
+              localPlayer.y = Math.random() * 190 + 20;
+            }, 2000);
+          } else {
+            sendGameHit(localPlayer.id, 15, false);
+          }
+          continue;
+        }
+      }
+    }
+    
+    if (p.ownerId === socket.id) {
+      let hit = false;
+      for (let j = 0; j < gameBots.length; j++) {
+        const bot = gameBots[j];
+        if (bot.hp <= 0) continue;
+        
+        const dx = p.x - bot.x;
+        const dy = p.y - bot.y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        
+        if (dist < 12) {
+          if (currentGameMode === 'team' && bot.team === localPlayer.team) continue;
+          
+          bot.hp -= 15;
+          gameProjectiles.splice(i, 1);
+          hit = true;
+          
+          if (bot.hp <= 0) {
+            bot.hp = 0;
+            localPlayer.score++;
+            
+            chrome.storage.local.get(['messagesSentCount'], (res) => {
+              const count = (res.messagesSentCount || 0) + 1;
+              chrome.storage.local.set({ messagesSentCount: count });
+            });
+            
+            const deadBot = bot;
+            setTimeout(() => {
+              if (gameBots.includes(deadBot)) {
+                deadBot.hp = 100;
+                deadBot.x = Math.random() * 320 + 20;
+                deadBot.y = Math.random() * 190 + 20;
+              }
+            }, 2000);
+          }
+          break;
+        }
+      }
+      if (hit) continue;
+    }
+  }
+}
+
+function updateLocalPlayer() {
+  if (localPlayer.hp <= 0) return;
+  
+  let dx = 0;
+  let dy = 0;
+  if (keysPressed['KeyW'] || keysPressed['ArrowUp']) dy -= 1;
+  if (keysPressed['KeyS'] || keysPressed['ArrowDown']) dy += 1;
+  if (keysPressed['KeyA'] || keysPressed['ArrowLeft']) dx -= 1;
+  if (keysPressed['KeyD'] || keysPressed['ArrowRight']) dx += 1;
+  
+  if (dx !== 0 || dy !== 0) {
+    const len = Math.sqrt(dx * dx + dy * dy);
+    const speed = (currentGameMode === 'infection' && localPlayer.infected) ? 3.6 : 3;
+    localPlayer.x += (dx / len) * speed;
+    localPlayer.y += (dy / len) * speed;
+    
+    localPlayer.x = Math.max(10, Math.min(360, localPlayer.x));
+    localPlayer.y = Math.max(10, Math.min(220, localPlayer.y));
+    
+    localPlayer.angle = Math.atan2(dy, dx);
+  }
+  
+  if (currentGameMode === 'infection' && localPlayer.infected) {
+    gamePlayers.forEach((p, id) => {
+      if (!p.infected && p.hp > 0) {
+        const distDx = p.x - localPlayer.x;
+        const distDy = p.y - localPlayer.y;
+        const dist = Math.sqrt(distDx * distDx + distDy * distDy);
+        if (dist < 18) {
+          sendGameHit(id, 0, true);
+        }
+      }
+    });
+    
+    gameBots.forEach(bot => {
+      if (!bot.infected && bot.hp > 0) {
+        const distDx = bot.x - localPlayer.x;
+        const distDy = bot.y - localPlayer.y;
+        const dist = Math.sqrt(distDx * distDx + distDy * distDy);
+        if (dist < 18) {
+          infectTarget(bot, localPlayer.id);
+        }
+      }
+    });
+  }
+}
+
+function drawGame() {
+  gameCtx.fillStyle = '#0b0914';
+  gameCtx.fillRect(0, 0, gameCanvas.width, gameCanvas.height);
+  
+  gameCtx.strokeStyle = 'rgba(128, 90, 213, 0.15)';
+  gameCtx.lineWidth = 1;
+  const gridSize = 25;
+  for (let x = 0; x < gameCanvas.width; x += gridSize) {
+    gameCtx.beginPath();
+    gameCtx.moveTo(x, 0);
+    gameCtx.lineTo(x, gameCanvas.height);
+    gameCtx.stroke();
+  }
+  for (let y = 0; y < gameCanvas.height; y += gridSize) {
+    gameCtx.beginPath();
+    gameCtx.moveTo(0, y);
+    gameCtx.lineTo(gameCanvas.width, y);
+    gameCtx.stroke();
+  }
+  
+  gameProjectiles.forEach(p => {
+    gameCtx.beginPath();
+    gameCtx.arc(p.x, p.y, 3, 0, Math.PI * 2);
+    gameCtx.fillStyle = p.color || 'yellow';
+    gameCtx.shadowColor = p.color || 'yellow';
+    gameCtx.shadowBlur = 6;
+    gameCtx.fill();
+    gameCtx.shadowBlur = 0;
+  });
+  
+  gameBots.forEach(bot => {
+    if (bot.hp > 0) drawCharacter(bot);
+  });
+  
+  gamePlayers.forEach(p => {
+    if (p.hp > 0) drawCharacter(p);
+  });
+  
+  if (localPlayer.hp > 0) {
+    drawCharacter({
+      ...localPlayer,
+      id: socket ? socket.id : 'self'
+    }, true);
+  } else {
+    gameCtx.fillStyle = 'rgba(220, 53, 69, 0.8)';
+    gameCtx.font = 'bold 16px sans-serif';
+    gameCtx.textAlign = 'center';
+    gameCtx.fillText('ВЫ ПОГИБЛИ', gameCanvas.width / 2, gameCanvas.height / 2 - 10);
+    gameCtx.font = '11px sans-serif';
+    gameCtx.fillText('Возрождение через 2 сек...', gameCanvas.width / 2, gameCanvas.height / 2 + 10);
+  }
+}
+
+function drawCharacter(c, isSelf = false) {
+  let color = 'cyan';
+  if (currentGameMode === 'team') {
+    color = c.team === 'red' ? '#ff3333' : '#3333ff';
+  } else if (currentGameMode === 'infection') {
+    color = c.infected ? '#00ff66' : '#ffffff';
+  } else {
+    color = isSelf ? '#00d2ff' : '#ff9f1c';
+  }
+  
+  if (c.color && currentGameMode === 'ffa') {
+    color = c.color;
+  }
+  
+  gameCtx.beginPath();
+  gameCtx.arc(c.x, c.y, 10, 0, Math.PI * 2);
+  gameCtx.fillStyle = color;
+  gameCtx.shadowColor = color;
+  gameCtx.shadowBlur = 8;
+  gameCtx.fill();
+  gameCtx.shadowBlur = 0;
+  
+  gameCtx.beginPath();
+  gameCtx.moveTo(c.x, c.y);
+  gameCtx.lineTo(c.x + Math.cos(c.angle) * 12, c.y + Math.sin(c.angle) * 12);
+  gameCtx.strokeStyle = 'white';
+  gameCtx.lineWidth = 2;
+  gameCtx.stroke();
+  
+  gameCtx.fillStyle = 'white';
+  gameCtx.font = '9px sans-serif';
+  gameCtx.textAlign = 'center';
+  
+  const badgeStr = c.badge ? c.badge + ' ' : '';
+  const scoreVal = c.score || 0;
+  const levelStr = ` [K:${scoreVal}]`;
+  const nameLabel = `${badgeStr}${c.nickname}${levelStr}`;
+  gameCtx.fillText(nameLabel, c.x, c.y - 18);
+  
+  const barW = 20;
+  const barH = 3;
+  gameCtx.fillStyle = 'rgba(0,0,0,0.5)';
+  gameCtx.fillRect(c.x - barW / 2, c.y - 14, barW, barH);
+  
+  const hpPercent = c.hp / 100;
+  gameCtx.fillStyle = c.infected ? '#00ff66' : (hpPercent > 0.5 ? '#198754' : '#dc3545');
+  gameCtx.fillRect(c.x - barW / 2, c.y - 14, barW * hpPercent, barH);
+}
+
+async function sendGameJoin() {
+  if (socket && aesKey) {
+    try {
+      const payload = await encryptText(JSON.stringify({
+        nickname: localPlayer.nickname,
+        x: localPlayer.x,
+        y: localPlayer.y,
+        hp: localPlayer.hp,
+        team: localPlayer.team,
+        infected: localPlayer.infected,
+        badge: localPlayer.badge,
+        color: localPlayer.color
+      }), aesKey);
+      socket.emit('game_join', payload);
+    } catch(e) {
+      console.error(e);
+    }
+  }
+}
+
+async function sendGameUpdate() {
+  if (socket && aesKey) {
+    try {
+      const payload = await encryptText(JSON.stringify({
+        x: localPlayer.x,
+        y: localPlayer.y,
+        angle: localPlayer.angle,
+        hp: localPlayer.hp,
+        team: localPlayer.team,
+        infected: localPlayer.infected,
+        score: localPlayer.score,
+        badge: localPlayer.badge,
+        color: localPlayer.color
+      }), aesKey);
+      socket.emit('game_update', payload);
+    } catch(e) {
+      console.error(e);
+    }
+  }
+}
+
+async function sendGameShoot(bullet) {
+  if (socket && aesKey) {
+    try {
+      const payload = await encryptText(JSON.stringify(bullet), aesKey);
+      socket.emit('game_shoot', payload);
+    } catch(e) {
+      console.error(e);
+    }
+  }
+}
+
+async function sendGameHit(targetId, damage, infect = false) {
+  if (socket && aesKey) {
+    try {
+      const payload = await encryptText(JSON.stringify({
+        targetId,
+        damage,
+        infect,
+        shooterId: socket.id
+      }), aesKey);
+      socket.emit('game_hit', payload);
+    } catch(e) {
+      console.error(e);
+    }
+  }
+}
+
+async function sendGameModeChange(mode) {
+  if (socket && aesKey) {
+    try {
+      const payload = await encryptText(JSON.stringify({ mode }), aesKey);
+      socket.emit('game_mode_change', payload);
+    } catch(e) {
+      console.error(e);
+    }
+  }
+}
+
+function gameLoop() {
+  if (!isGameActive) return;
+  
+  manageBots();
+  updateLocalPlayer();
+  updateBots();
+  updateProjectiles();
+  drawGame();
+  
+  gameLoopId = requestAnimationFrame(gameLoop);
+}
