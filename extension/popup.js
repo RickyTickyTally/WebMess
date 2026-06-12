@@ -1,4 +1,4 @@
-const SERVER_URL = 'http://localhost:3000'; // При деплое замените на URL вашего хостинга
+const SERVER_URL = 'https://bibiswim-webmess.hf.space'; // При деплое замените на URL вашего хостинга
 
 // DOM Элементы
 const blockedScreen = document.getElementById('blocked-screen');
@@ -42,7 +42,7 @@ async function encryptText(text, key) {
     key,
     encoded
   );
-  
+
   return {
     iv: bufToHex(iv.buffer),
     ciphertext: bufToHex(encryptedBuf)
@@ -54,13 +54,13 @@ async function decryptText(payload, key) {
   const { iv, ciphertext } = payload;
   const ivBuf = hexToBuf(iv);
   const ciphertextBuf = hexToBuf(ciphertext);
-  
+
   const decryptedBuf = await window.crypto.subtle.decrypt(
     { name: "AES-GCM", iv: ivBuf },
     key,
     ciphertextBuf
   );
-  
+
   return new TextDecoder().decode(decryptedBuf);
 }
 
@@ -98,7 +98,7 @@ async function loadTabs() {
 
   try {
     const tabs = await chrome.tabs.query({ currentWindow: true });
-    
+
     // Фильтруем только безопасные страницы для чата
     const safeTabs = tabs.filter(t => t.url && isUrlSafe(t.url));
 
@@ -180,7 +180,7 @@ function appendMessageToUi(msg, autoScroll = true) {
   const { author, text, time } = msg;
   const msgDiv = document.createElement('div');
   msgDiv.className = 'message';
-  
+
   const date = new Date(time);
   const timeStr = `${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`;
   const safeText = text.replace(/</g, "&lt;").replace(/>/g, "&gt;");
@@ -190,7 +190,7 @@ function appendMessageToUi(msg, autoScroll = true) {
     <div class="text">${safeText}</div>
   `;
   messagesContainer.appendChild(msgDiv);
-  
+
   if (autoScroll) {
     messagesContainer.scrollTop = messagesContainer.scrollHeight;
   }
@@ -221,7 +221,7 @@ function connectToChat(url, nickname) {
     }
   });
 
-  socket = io(SERVER_URL);
+  socket = io(SERVER_URL, { transports: ['websocket'] });
 
   socket.on('connect', async () => {
     try {
@@ -243,7 +243,7 @@ function connectToChat(url, nickname) {
       socket.once('dh_handshake_response', async ({ serverPublicKeyHex }) => {
         try {
           const serverPubKeyBuf = hexToBuf(serverPublicKeyHex);
-          
+
           // Импортируем публичный ключ сервера
           const serverPublicKey = await window.crypto.subtle.importKey(
             "raw",
@@ -306,7 +306,7 @@ function connectToChat(url, nickname) {
       if (!aesKey) return;
       const decryptedStr = await decryptText(encryptedPayload, aesKey);
       const history = JSON.parse(decryptedStr);
-      
+
       // Обновляем локальный кэш
       chrome.storage.local.set({ [cacheKey]: history }, () => {
         renderMessages(history);
@@ -322,7 +322,7 @@ function connectToChat(url, nickname) {
       if (!aesKey) return;
       const decryptedStr = await decryptText(encryptedPayload, aesKey);
       const messageData = JSON.parse(decryptedStr);
-      
+
       // Добавляем сообщение в локальный кэш
       chrome.storage.local.get([cacheKey], (result) => {
         const history = result[cacheKey] || [];
@@ -376,7 +376,7 @@ messageInput.addEventListener('keypress', (e) => {
 async function init() {
   // Получаем текущую активную вкладку
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-  
+
   if (tab && tab.url) {
     currentUrl = tab.url;
   } else {
