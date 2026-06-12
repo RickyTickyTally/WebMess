@@ -477,7 +477,7 @@ function connectToChat(url, nickname) {
               ["encrypt", "decrypt"]
             );
 
-            console.log('[DH] Шифрование согласовано с сервером.');
+            console.log('[DH] Шифрование согласовано с сервером. Key hash:', bufToHex(aesKeyBuffer));
 
             // Читаем монеты из локального хранилища перед входом в комнату
             chrome.storage.local.get(['clickerCoins'], async (storageCoinsRes) => {
@@ -675,7 +675,7 @@ function connectToChat(url, nickname) {
           renderClickerLeaderboard(users);
         }
       } catch (err) {
-        console.error('Ошибка расшифровки списка участников:', err);
+        console.warn('Ошибка расшифровки списка участников (реконнект/смена ключа):', err.message || err);
       }
     });
 
@@ -691,7 +691,7 @@ function connectToChat(url, nickname) {
           renderMessages(history);
         });
       } catch (err) {
-        console.error('Ошибка расшифровки истории сообщений:', err);
+        console.warn('Ошибка расшифровки истории сообщений (реконнект/смена ключа):', err.message || err);
       }
     });
 
@@ -715,7 +715,7 @@ function connectToChat(url, nickname) {
           }
         });
       } catch (err) {
-        console.error('Ошибка расшифровки сообщения:', err);
+        console.warn('Ошибка расшифровки сообщения:', err.message || err);
       }
     });
 
@@ -729,7 +729,7 @@ function connectToChat(url, nickname) {
           gamePlayers.set(player.id, player);
         }
       } catch (err) {
-        console.error('Ошибка расшифровки game_player_joined:', err);
+        console.warn('Ошибка расшифровки game_player_joined:', err.message || err);
       }
     });
 
@@ -742,7 +742,7 @@ function connectToChat(url, nickname) {
           gamePlayers.set(player.id, player);
         }
       } catch (err) {
-        console.error('Ошибка расшифровки game_player_updated:', err);
+        console.warn('Ошибка расшифровки game_player_updated:', err.message || err);
       }
     });
 
@@ -755,7 +755,7 @@ function connectToChat(url, nickname) {
           gameProjectiles.push(bullet);
         }
       } catch (err) {
-        console.error('Ошибка расшифровки game_bullet_spawned:', err);
+        console.warn('Ошибка расшифровки game_bullet_spawned:', err.message || err);
       }
     });
 
@@ -811,7 +811,7 @@ function connectToChat(url, nickname) {
           }
         }
       } catch (err) {
-        console.error('Ошибка расшифровки game_player_hit:', err);
+        console.warn('Ошибка расшифровки game_player_hit:', err.message || err);
       }
     });
 
@@ -822,7 +822,7 @@ function connectToChat(url, nickname) {
         const { id } = JSON.parse(decryptedStr);
         gamePlayers.delete(id);
       } catch (err) {
-        console.error('Ошибка расшифровки game_player_left:', err);
+        console.warn('Ошибка расшифровки game_player_left:', err.message || err);
       }
     });
 
@@ -833,7 +833,7 @@ function connectToChat(url, nickname) {
         const { mode } = JSON.parse(decryptedStr);
         updateGameMode(mode);
       } catch (err) {
-        console.error('Ошибка расшифровки game_mode_updated:', err);
+        console.warn('Ошибка расшифровки game_mode_updated:', err.message || err);
       }
     });
 
@@ -844,7 +844,7 @@ function connectToChat(url, nickname) {
         const rooms = JSON.parse(decryptedStr);
         renderGameRoomsList(rooms);
       } catch (err) {
-        console.error('Ошибка расшифровки game_rooms_list:', err);
+        console.warn('Ошибка расшифровки game_rooms_list:', err.message || err);
       }
     });
 
@@ -856,7 +856,7 @@ function connectToChat(url, nickname) {
         const settings = JSON.parse(decryptedStr);
         applyRoomSettings(settings);
       } catch (err) {
-        console.error('Ошибка расшифровки room_settings:', err);
+        console.warn('Ошибка расшифровки room_settings:', err.message || err);
       }
     });
 
@@ -867,7 +867,7 @@ function connectToChat(url, nickname) {
         const settings = JSON.parse(decryptedStr);
         applyRoomSettings(settings);
       } catch (err) {
-        console.error('Ошибка расшифровки room_settings_updated:', err);
+        console.warn('Ошибка расшифровки room_settings_updated:', err.message || err);
       }
     });
   });
@@ -2369,8 +2369,31 @@ const gamesPanelRelax = document.getElementById('games-panel-relax');
 const relaxVideoPlayer = document.getElementById('relax-video-player');
 const relaxPlayerPlaceholder = document.getElementById('relax-player-placeholder');
 
+const CARPET_PLAYLIST = [
+  "Hpgw0T6KIRA", "HgKeX36LjiQ", "5DL4v0UkITI", "9dkEtSsDqTM", "MU7tDGf203k",
+  "aAUG-5aYr2c", "_VY4r5ty8hc", "WhGVoJ3qWzs", "kmuEvmJ_n44", "erw3qPgV4zs",
+  "orf5xwhbmMQ", "t4tYTkRtyTI", "o8w9PBeojX0", "RSEZliEfInU", "ivUVhrJpF_M",
+  "XAmlB-F-9VI", "XSr83tPjjZ4", "lWXFqYI_3Rg", "zgiwHCNpgco", "s7lJ9TMS1pM",
+  "QSyHZC8aU7g", "YGRsVl6zov4", "JUcR3Yv0Heo", "OpFDWhEGH-o", "Cdnfoi7OoO4",
+  "wSjtSboLAZ4", "Iflr2FBJvS4", "hW3nEHsmNXM", "x5x7PBPeC-8", "47phJFCbfeI",
+  "z7OKEKT6r94", "D2Ns2ifQ53E", "JJA2M2HgDuQ", "J6GLXcla6oU", "AdtHunhytyU",
+  "56ce36CJbhU", "q7Syi2mbIO0", "gHaxtcSWY8w", "Eg_E8GYftxk", "AlHHK4p7H9M",
+  "eNmi3oMhr1E", "p3KCpYcFjdE", "kWdcX6eyi4c", "7t_axQtm1-w", "_Udu4tD1mqY",
+  "zQoT1QYbdHc", "VZVjyfDcf6I", "2q0ujrdT8-Q", "TRbXEuYu8po", "SthZ3KnQSFQ",
+  "vmSEBQA65P8", "4K3sV7qiZd0", "woFUByHItCk", "A5MOqI2-FZE", "WpWrdRHpU3s",
+  "h8cf9Pw29oU", "g-RIFmT3L0o", "Kq6fpHblxic", "mEzZ6fTcwmA", "w1pQHuWV2JM",
+  "-yw4gWeq3QY", "1_6C-SWQRwU", "Tb5L-kcJfho", "VV6JuB3ZmVc", "8n2wRvhergo",
+  "gg1IZhdWiNw", "F8azcYH7WPk", "nMf2pk8x_h0", "t1nPATCDakE", "UcOUnBt9yyw",
+  "mLT0IOMQqVM", "-gKSi0axz6A", "BY2H9lczp_Y", "0BdYdtJ_BRg", "VyZEgS6tReQ",
+  "qYAMNnEiUb0", "caFtyG64crg", "783guRk48VA", "bRR1cgEmG0c", "awYRK3PKOUg",
+  "qJ54Ib0Sl1c", "DKetcbITNpA", "ucmaR-rsA_c", "nC62Fnh9OM8", "u85vpttQw-s",
+  "roTbValeTVY", "fkgbyCpc_CE", "meqFtj9mRQY", "JqLq98DL3As", "v2vv45n_1p8",
+  "P5mmqHgGgkI", "oCo8iin1TII", "a7FWnGqytUo", "qXYx6b0WdHk", "Dae3wOM4DMk",
+  "5-z7BFoQXRE", "9UC067AKtsk", "bpGrK-9v_yA", "X8RBDoKcDaY", "Y8fOUeKNjXQ"
+];
+
 const RELAX_VIDEOS = {
-  carpet: 'https://www.youtube.com/embed/videoseries?list=PLRH0_0gY-PlLdaMOrox5Kp0Yx2QN0bzts&autoplay=1&mute=1&loop=1',
+  carpet: `https://www.youtube.com/embed/${CARPET_PLAYLIST[0]}?autoplay=1&mute=1&loop=1&playlist=${CARPET_PLAYLIST.join(',')}`,
   soap: 'https://www.youtube.com/embed/V6_V9n5X4oQ?autoplay=1&mute=1&loop=1&playlist=V6_V9n5X4oQ',
   subway: 'https://www.youtube.com/embed/42_xee_vjM0?autoplay=1&mute=1&loop=1&playlist=42_xee_vjM0',
   sand: 'https://www.youtube.com/embed/qL_fH_xH5Jg?autoplay=1&mute=1&loop=1&playlist=qL_fH_xH5Jg'

@@ -161,7 +161,7 @@ io.on('connection', (socket) => {
       const aesKey = crypto.createHash('sha256').update(sharedSecret).digest();
 
       socketKeys.set(socket.id, aesKey);
-      console.log(`[DH] Сессионный ключ для сокета ${socket.id} успешно создан.`);
+      console.log(`[DH] Сессионный ключ для сокета ${socket.id} успешно создан. Key hash: ${aesKey.toString('hex')}`);
 
       socket.emit('dh_handshake_response', { serverPublicKeyHex: serverPublicKey });
     } catch (err) {
