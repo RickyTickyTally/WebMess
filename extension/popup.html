@@ -1108,7 +1108,7 @@
 
         <div style="flex: 1; display: flex; align-items: center; justify-content: center; position: relative;">
           <!-- Ифрейм Плеера -->
-          <iframe id="relax-video-player" width="100%" height="220" src="" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen style="border-radius: 8px; border: 1px solid var(--border-color); background: #000; display: none;"></iframe>
+          <iframe id="relax-video-player" width="100%" height="220" src="" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen style="border-radius: 8px; border: 1px solid var(--border-color); background: #000; display: none;"></iframe>
           <!-- Плейсхолдер -->
           <div id="relax-player-placeholder" style="text-align: center; padding: 20px; color: var(--text-muted); font-size: 12px; display: flex; flex-direction: column; align-items: center; gap: 8px;">
             <svg style="width: 32px; height: 32px; opacity: 0.5;" viewBox="0 0 24 24" fill="currentColor">
@@ -1427,7 +1427,7 @@
       </div>
     </div>
   </div>
-  <iframe id="global-music-player" src="" frameborder="0" allow="autoplay; encrypted-media" style="position: absolute; top: 0; left: 0; width: 300px; height: 200px; z-index: 1; opacity: 0.01; pointer-events: none;"></iframe>
+  <iframe id="global-music-player" src="" frameborder="0" allow="autoplay; encrypted-media" referrerpolicy="strict-origin-when-cross-origin" style="position: absolute; top: 0; left: 0; width: 300px; height: 200px; z-index: 1; opacity: 0.01; pointer-events: none;"></iframe>
   <script src="popup.js"></script>
 </body>
 </html>
