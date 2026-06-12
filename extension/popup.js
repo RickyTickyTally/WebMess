@@ -1,4 +1,4 @@
-const SERVER_URL = 'https://bibiswim-webmess.hf.space'; // При деплое замените на URL вашего хостинга
+const SERVER_URL = 'https://bibiswim-webmess.hf.space'; // Ссылка на ваш хостинг
 
 // DOM Элементы
 const blockedScreen = document.getElementById('blocked-screen');
@@ -7,6 +7,12 @@ const chatScreen = document.getElementById('chat-screen');
 
 const nicknameInput = document.getElementById('nickname-input');
 const saveNicknameBtn = document.getElementById('save-nickname-btn');
+
+const premiumCheckbox = document.getElementById('premium-checkbox');
+const premiumOptions = document.getElementById('premium-options');
+const premiumBadge = document.getElementById('premium-badge');
+const premiumColor = document.getElementById('premium-color');
+const invisibleCheckbox = document.getElementById('invisible-checkbox');
 
 const usersList = document.getElementById('users-list');
 const messagesContainer = document.getElementById('messages-container');
@@ -17,6 +23,11 @@ let socket = null;
 let currentUrl = '';
 let currentNickname = '';
 let aesKey = null; // Сессионный AES-GCM ключ
+
+// Переключение видимости блока премиум-настроек
+premiumCheckbox.addEventListener('change', () => {
+  premiumOptions.style.display = premiumCheckbox.checked ? 'flex' : 'none';
+});
 
 // Вспомогательные функции конвертации буфера и hex-строки
 function bufToHex(buf) {
@@ -42,7 +53,7 @@ async function encryptText(text, key) {
     key,
     encoded
   );
-
+  
   return {
     iv: bufToHex(iv.buffer),
     ciphertext: bufToHex(encryptedBuf)
@@ -54,13 +65,13 @@ async function decryptText(payload, key) {
   const { iv, ciphertext } = payload;
   const ivBuf = hexToBuf(iv);
   const ciphertextBuf = hexToBuf(ciphertext);
-
+  
   const decryptedBuf = await window.crypto.subtle.decrypt(
     { name: "AES-GCM", iv: ivBuf },
     key,
     ciphertextBuf
   );
-
+  
   return new TextDecoder().decode(decryptedBuf);
 }
 
@@ -98,7 +109,7 @@ async function loadTabs() {
 
   try {
     const tabs = await chrome.tabs.query({ currentWindow: true });
-
+    
     // Фильтруем только безопасные страницы для чата
     const safeTabs = tabs.filter(t => t.url && isUrlSafe(t.url));
 
@@ -177,20 +188,23 @@ function renderMessages(messages) {
 
 // Вспомогательная функция отрисовки одного сообщения
 function appendMessageToUi(msg, autoScroll = true) {
-  const { author, text, time } = msg;
+  const { author, text, time, badge, color } = msg;
   const msgDiv = document.createElement('div');
   msgDiv.className = 'message';
-
+  
   const date = new Date(time);
   const timeStr = `${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`;
   const safeText = text.replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
+  const badgeHtml = badge ? `<span class="badge" style="margin-right: 4px; padding: 2px 4px; background: #e9ecef; border-radius: 4px; font-size: 10px; font-weight: bold;">${badge}</span>` : '';
+  const nameStyle = color ? `style="color: ${color}; font-weight: bold;"` : '';
+
   msgDiv.innerHTML = `
-    <div class="author">${author} <span class="time">${timeStr}</span></div>
+    <div class="author" ${nameStyle}>${badgeHtml}${author} <span class="time" style="color: #adb5bd; font-weight: normal; margin-left: 6px;">${timeStr}</span></div>
     <div class="text">${safeText}</div>
   `;
   messagesContainer.appendChild(msgDiv);
-
+  
   if (autoScroll) {
     messagesContainer.scrollTop = messagesContainer.scrollHeight;
   }
@@ -221,123 +235,153 @@ function connectToChat(url, nickname) {
     }
   });
 
-  socket = io(SERVER_URL, { transports: ['websocket'] });
+  // Запрашиваем информацию о Premium настройках из хранилища
+  chrome.storage.local.get(['isPremium', 'premiumBadge', 'premiumColor', 'isInvisible'], (storageData) => {
+    const isPremium = storageData.isPremium || false;
+    const badge = isPremium ? (storageData.premiumBadge || '') : '';
+    const color = isPremium ? (storageData.premiumColor || '') : '';
+    const isInvisible = isPremium ? (storageData.isInvisible || false) : false;
 
-  socket.on('connect', async () => {
-    try {
-      // 1. Генерируем эфемерные ключи ECDH (кривая P-256)
-      const keyPair = await window.crypto.subtle.generateKey(
-        { name: "ECDH", namedCurve: "P-256" },
-        true,
-        ["deriveKey", "deriveBits"]
-      );
+    socket = io(SERVER_URL, { transports: ['websocket'] });
 
-      // Экспортируем публичный ключ в RAW формат и кодируем в HEX
-      const rawPubBuf = await window.crypto.subtle.exportKey("raw", keyPair.publicKey);
-      const clientPublicKeyHex = bufToHex(rawPubBuf);
+    socket.on('connect', async () => {
+      try {
+        // 1. Генерируем эфемерные ключи ECDH (кривая P-256)
+        const keyPair = await window.crypto.subtle.generateKey(
+          { name: "ECDH", namedCurve: "P-256" },
+          true,
+          ["deriveKey", "deriveBits"]
+        );
 
-      // Отправляем запрос на обмен ключами
-      socket.emit('dh_handshake_start', { clientPublicKeyHex });
+        // Экспортируем публичный ключ в RAW формат и кодируем в HEX
+        const rawPubBuf = await window.crypto.subtle.exportKey("raw", keyPair.publicKey);
+        const clientPublicKeyHex = bufToHex(rawPubBuf);
 
-      // Ждем ответный ключ сервера
-      socket.once('dh_handshake_response', async ({ serverPublicKeyHex }) => {
-        try {
-          const serverPubKeyBuf = hexToBuf(serverPublicKeyHex);
+        // Отправляем запрос на обмен ключами
+        socket.emit('dh_handshake_start', { clientPublicKeyHex });
 
-          // Импортируем публичный ключ сервера
-          const serverPublicKey = await window.crypto.subtle.importKey(
-            "raw",
-            serverPubKeyBuf,
-            { name: "ECDH", namedCurve: "P-256" },
-            true,
-            []
-          );
+        // Ждем ответный ключ сервера
+        socket.once('dh_handshake_response', async ({ serverPublicKeyHex }) => {
+          try {
+            const serverPubKeyBuf = hexToBuf(serverPublicKeyHex);
+            
+            // Импортируем публичный ключ сервера
+            const serverPublicKey = await window.crypto.subtle.importKey(
+              "raw",
+              serverPubKeyBuf,
+              { name: "ECDH", namedCurve: "P-256" },
+              true,
+              []
+            );
 
-          // Вычисляем shared secret
-          const sharedSecretBits = await window.crypto.subtle.deriveBits(
-            { name: "ECDH", public: serverPublicKey },
-            keyPair.privateKey,
-            256
-          );
+            // Вычисляем shared secret
+            const sharedSecretBits = await window.crypto.subtle.deriveBits(
+              { name: "ECDH", public: serverPublicKey },
+              keyPair.privateKey,
+              256
+            );
 
-          // Хэшируем shared secret через SHA-256
-          const aesKeyBuffer = await window.crypto.subtle.digest("SHA-256", sharedSecretBits);
+            // Хэшируем shared secret через SHA-256
+            const aesKeyBuffer = await window.crypto.subtle.digest("SHA-256", sharedSecretBits);
 
-          // Импортируем хэш как симметричный ключ AES-GCM
-          aesKey = await window.crypto.subtle.importKey(
-            "raw",
-            aesKeyBuffer,
-            { name: "AES-GCM", length: 256 },
-            false,
-            ["encrypt", "decrypt"]
-          );
+            // Импортируем хэш как симметричный ключ AES-GCM
+            aesKey = await window.crypto.subtle.importKey(
+              "raw",
+              aesKeyBuffer,
+              { name: "AES-GCM", length: 256 },
+              false,
+              ["encrypt", "decrypt"]
+            );
 
-          console.log('[DH] Шифрование согласовано с сервером.');
+            console.log('[DH] Шифрование согласовано с сервером.');
 
-          // 2. Входим в комнату чата, зашифровав URL и Nickname
-          const joinPayload = await encryptText(JSON.stringify({ url, nickname }), aesKey);
-          socket.emit('join_room', joinPayload);
-        } catch (err) {
-          console.error('Ошибка рукопожатия:', err);
-          usersList.textContent = 'Ошибка шифрования';
-        }
-      });
-    } catch (err) {
-      console.error('Ошибка инициализации ECDH:', err);
-      usersList.textContent = 'Ошибка инициализации шифрования';
-    }
-  });
+            // 2. Входим в комнату чата, зашифровав URL, никнейм и Premium параметры
+            const joinPayload = await encryptText(JSON.stringify({ 
+              url, 
+              nickname, 
+              isPremium, 
+              badge, 
+              color, 
+              isInvisible 
+            }), aesKey);
+            socket.emit('join_room', joinPayload);
+          } catch (err) {
+            console.error('Ошибка рукопожатия:', err);
+            usersList.textContent = 'Ошибка шифрования';
+          }
+        });
+      } catch (err) {
+        console.error('Ошибка инициализации ECDH:', err);
+        usersList.textContent = 'Ошибка инициализации шифрования';
+      }
+    });
 
-  // Получение расшифрованного списка участников в сети
-  socket.on('update_users', async (encryptedPayload) => {
-    try {
-      if (!aesKey) return;
-      const decryptedStr = await decryptText(encryptedPayload, aesKey);
-      const users = JSON.parse(decryptedStr);
-      usersList.textContent = `В сети (${users.length}): ${users.join(', ')}`;
-    } catch (err) {
-      console.error('Ошибка расшифровки списка участников:', err);
-    }
-  });
+    // Получение расшифрованного списка участников в сети
+    socket.on('update_users', async (encryptedPayload) => {
+      try {
+        if (!aesKey) return;
+        const decryptedStr = await decryptText(encryptedPayload, aesKey);
+        const users = JSON.parse(decryptedStr);
+        
+        // Рендерим список с бейджами и цветами
+        usersList.innerHTML = 'В сети: ';
+        users.forEach((u, index) => {
+          const span = document.createElement('span');
+          span.textContent = `${u.badge ? u.badge + ' ' : ''}${u.nickname}`;
+          if (u.color) {
+            span.style.color = u.color;
+            span.style.fontWeight = 'bold';
+          }
+          
+          if (index > 0) {
+            usersList.appendChild(document.createTextNode(', '));
+          }
+          usersList.appendChild(span);
+        });
+      } catch (err) {
+        console.error('Ошибка расшифровки списка участников:', err);
+      }
+    });
 
-  // Получение и расшифровка истории сообщений в комнате (синхронизируем с кэшем)
-  socket.on('chat_history', async (encryptedPayload) => {
-    try {
-      if (!aesKey) return;
-      const decryptedStr = await decryptText(encryptedPayload, aesKey);
-      const history = JSON.parse(decryptedStr);
+    // Получение и расшифровка истории сообщений в комнате (синхронизируем с кэшем)
+    socket.on('chat_history', async (encryptedPayload) => {
+      try {
+        if (!aesKey) return;
+        const decryptedStr = await decryptText(encryptedPayload, aesKey);
+        const history = JSON.parse(decryptedStr);
+        
+        // Обновляем локальный кэш
+        chrome.storage.local.set({ [cacheKey]: history }, () => {
+          renderMessages(history);
+        });
+      } catch (err) {
+        console.error('Ошибка расшифровки истории сообщений:', err);
+      }
+    });
 
-      // Обновляем локальный кэш
-      chrome.storage.local.set({ [cacheKey]: history }, () => {
-        renderMessages(history);
-      });
-    } catch (err) {
-      console.error('Ошибка расшифровки истории сообщений:', err);
-    }
-  });
-
-  // Получение расшифрованного входящего сообщения
-  socket.on('receive_message', async (encryptedPayload) => {
-    try {
-      if (!aesKey) return;
-      const decryptedStr = await decryptText(encryptedPayload, aesKey);
-      const messageData = JSON.parse(decryptedStr);
-
-      // Добавляем сообщение в локальный кэш
-      chrome.storage.local.get([cacheKey], (result) => {
-        const history = result[cacheKey] || [];
-        const isDuplicate = history.some(m => m.time === messageData.time && m.text === messageData.text);
-        if (!isDuplicate) {
-          history.push(messageData);
-          if (history.length > 50) history.shift();
-          chrome.storage.local.set({ [cacheKey]: history }, () => {
-            appendMessageToUi(messageData);
-          });
-        }
-      });
-    } catch (err) {
-      console.error('Ошибка расшифровки сообщения:', err);
-    }
+    // Получение расшифрованного входящего сообщения
+    socket.on('receive_message', async (encryptedPayload) => {
+      try {
+        if (!aesKey) return;
+        const decryptedStr = await decryptText(encryptedPayload, aesKey);
+        const messageData = JSON.parse(decryptedStr);
+        
+        // Добавляем сообщение в локальный кэш
+        chrome.storage.local.get([cacheKey], (result) => {
+          const history = result[cacheKey] || [];
+          const isDuplicate = history.some(m => m.time === messageData.time && m.text === messageData.text);
+          if (!isDuplicate) {
+            history.push(messageData);
+            if (history.length > 50) history.shift();
+            chrome.storage.local.set({ [cacheKey]: history }, () => {
+              appendMessageToUi(messageData);
+            });
+          }
+        });
+      } catch (err) {
+        console.error('Ошибка расшифровки сообщения:', err);
+      }
+    });
   });
 }
 
@@ -360,7 +404,18 @@ async function sendMessage() {
 saveNicknameBtn.addEventListener('click', () => {
   const nickname = nicknameInput.value.trim();
   if (nickname) {
-    chrome.storage.local.set({ nickname: nickname }, () => {
+    const isPremium = premiumCheckbox.checked;
+    const badge = isPremium ? premiumBadge.value : '';
+    const color = isPremium ? premiumColor.value : '';
+    const isInvisible = isPremium ? invisibleCheckbox.checked : false;
+
+    chrome.storage.local.set({ 
+      nickname,
+      isPremium,
+      premiumBadge: badge,
+      premiumColor: color,
+      isInvisible
+    }, () => {
       currentNickname = nickname;
       connectToChat(currentUrl, currentNickname);
     });
@@ -376,7 +431,7 @@ messageInput.addEventListener('keypress', (e) => {
 async function init() {
   // Получаем текущую активную вкладку
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-
+  
   if (tab && tab.url) {
     currentUrl = tab.url;
   } else {
@@ -388,9 +443,18 @@ async function init() {
 
   // Если активная вкладка безопасна, пробуем войти, иначе пишем "Доступ запрещен"
   if (currentUrl && isUrlSafe(currentUrl)) {
-    chrome.storage.local.get(['nickname'], (result) => {
+    chrome.storage.local.get(['nickname', 'isPremium', 'premiumBadge', 'premiumColor', 'isInvisible'], (result) => {
       if (result.nickname) {
         currentNickname = result.nickname;
+        
+        // Пре-заполняем поля премиума в форме, если они есть
+        premiumCheckbox.checked = result.isPremium || false;
+        premiumOptions.style.display = premiumCheckbox.checked ? 'flex' : 'none';
+        premiumBadge.value = result.premiumBadge || '';
+        premiumColor.value = result.premiumColor || '';
+        invisibleCheckbox.checked = result.isInvisible || false;
+        nicknameInput.value = result.nickname;
+
         connectToChat(currentUrl, currentNickname);
       } else {
         showScreen('auth');

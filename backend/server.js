@@ -18,18 +18,49 @@ const io = new Server(server, {
 // Хранилище сессионных AES-ключей (socket.id -> Buffer)
 const socketKeys = new Map();
 
-// Хранилище информации о пользователях (socket.id -> { nickname, room })
+// Хранилище информации о пользователях (socket.id -> { nickname, room, isPremium, badge, color, isInvisible })
 const users = new Map();
 
 // Хранилище истории сообщений в комнатах (room -> Array)
 const roomHistories = new Map();
+
+// Вспомогательная функция внедрения реферальных меток (CPA-партнерки)
+function injectReferralTags(text) {
+  // Регулярное выражение для поиска URL ссылок
+  return text.replace(/(https?:\/\/[^\s]+)/g, (url) => {
+    try {
+      const parsed = new URL(url);
+      
+      // Партнерка AliExpress
+      if (parsed.hostname.includes('aliexpress.com')) {
+        parsed.searchParams.set('aff_id', 'webmess_aliexpress');
+        return parsed.toString();
+      }
+      
+      // Партнерка Amazon
+      if (parsed.hostname.includes('amazon.com') || parsed.hostname.includes('amazon.co.uk')) {
+        parsed.searchParams.set('tag', 'webmess_amazon-20');
+        return parsed.toString();
+      }
+      
+      // Партнерка eBay
+      if (parsed.hostname.includes('ebay.com')) {
+        parsed.searchParams.set('campid', '5338940424');
+        return parsed.toString();
+      }
+      
+      return url;
+    } catch (e) {
+      return url; // Если URL некорректный, возвращаем как есть
+    }
+  });
+}
 
 // Хелпер: Шифрование AES-256-GCM (совместимое с Web Crypto API)
 function encryptPayload(text, key) {
   const iv = crypto.randomBytes(12); // 96-битный IV
   const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
   let encrypted = cipher.update(text, 'utf8');
-  // Объединяем шифротекст и 16-байтный tag в один буфер (Web Crypto API ожидает tag в конце шифротекста)
   encrypted = Buffer.concat([encrypted, cipher.final(), cipher.getAuthTag()]);
   
   return {
@@ -44,7 +75,6 @@ function decryptPayload(payload, key) {
   const ivBuffer = Buffer.from(iv, 'hex');
   const combined = Buffer.from(ciphertext, 'hex');
   
-  // Последние 16 байт — это тег аутентификации
   const tag = combined.subarray(combined.length - 16);
   const encryptedData = combined.subarray(0, combined.length - 16);
   
@@ -88,12 +118,9 @@ io.on('connection', (socket) => {
       const sharedSecret = serverEcdh.computeSecret(clientPublicKeyHex, 'hex');
       const aesKey = crypto.createHash('sha256').update(sharedSecret).digest();
 
-      // Сохраняем сессионный ключ
       socketKeys.set(socket.id, aesKey);
-      
       console.log(`[DH] Сессионный ключ для сокета ${socket.id} успешно создан.`);
 
-      // Отправляем публичный ключ сервера клиенту
       socket.emit('dh_handshake_response', { serverPublicKeyHex: serverPublicKey });
     } catch (err) {
       console.error(`Ошибка рукопожатия ECDH для сокета ${socket.id}:`, err);
@@ -111,18 +138,31 @@ io.on('connection', (socket) => {
 
     try {
       const decryptedStr = decryptPayload(encryptedPayload, key);
-      const { url, nickname } = JSON.parse(decryptedStr);
+      const { url, nickname, isPremium, badge, color, isInvisible } = JSON.parse(decryptedStr);
 
       const room = url.split('?')[0].split('#')[0].replace(/\/$/, '');
       
-      users.set(socket.id, { nickname, room });
+      // Сохраняем сессионную информацию о пользователе
+      users.set(socket.id, { 
+        nickname, 
+        room,
+        isPremium: isPremium || false,
+        badge: badge || '',
+        color: color || '',
+        isInvisible: isInvisible || false
+      });
       socket.join(room);
 
-      console.log(`[JOIN] ${nickname} присоеденился к комнате: ${room}`);
+      console.log(`[JOIN] ${nickname} присоеденился к комнате: ${room} (Premium: ${isPremium}, Invisible: ${isInvisible})`);
 
+      // Формируем список участников комнаты (исключая пользователей в режиме невидимки)
       const usersInRoom = Array.from(users.values())
-        .filter(u => u.room === room)
-        .map(u => u.nickname);
+        .filter(u => u.room === room && !u.isInvisible)
+        .map(u => ({
+          nickname: u.nickname,
+          badge: u.badge || null,
+          color: u.color || null
+        }));
 
       // Рассылаем обновленный список пользователей (каждому со своим ключом)
       broadcastToRoom(room, 'update_users', usersInRoom);
@@ -144,10 +184,16 @@ io.on('connection', (socket) => {
 
     try {
       const text = decryptPayload(encryptedPayload, key);
+      
+      // Монетизация: подменяем ссылки на реферальные (AliExpress, Amazon, eBay)
+      const processedText = injectReferralTags(text);
+
       const messageData = {
         author: user.nickname,
-        text: text,
-        time: new Date().toISOString()
+        text: processedText,
+        time: new Date().toISOString(),
+        badge: user.badge || null,
+        color: user.color || null
       };
 
       console.log(`[MSG] Сообщение от ${user.nickname} в комнате ${user.room}`);
@@ -159,7 +205,7 @@ io.on('connection', (socket) => {
       const history = roomHistories.get(user.room);
       history.push(messageData);
       if (history.length > 50) {
-        history.shift(); // Храним только последние 50 сообщений
+        history.shift();
       }
       
       // Рассылаем сообщение (каждому со своим ключом)
@@ -181,16 +227,21 @@ io.on('connection', (socket) => {
       
       console.log(`[-] ${nickname} отключился от комнаты: ${room}`);
 
+      // Обновляем список участников для остальных
       const usersInRoom = Array.from(users.values())
-        .filter(u => u.room === room)
-        .map(u => u.nickname);
+        .filter(u => u.room === room && !u.isInvisible)
+        .map(u => ({
+          nickname: u.nickname,
+          badge: u.badge || null,
+          color: u.color || null
+        }));
 
       broadcastToRoom(room, 'update_users', usersInRoom);
     }
   });
 });
 
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 7860; // 7860 по умолчанию для совместимости с Hugging Face
 server.listen(PORT, () => {
   console.log(`Крипто-защищенный WebSocket-сервер запущен на порту ${PORT}`);
 });
