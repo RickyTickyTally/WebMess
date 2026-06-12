@@ -87,19 +87,7 @@ const shopCoinsDisplay = document.getElementById('shop-coins-display');
 const shopTaskPro = document.getElementById('shop-task-pro');
 const shopTaskLightning = document.getElementById('shop-task-lightning');
 
-const bottleMusicStatus = document.getElementById('bottle-music-status');
-const bottleMusicTitle = document.getElementById('bottle-music-title');
-const bottleMusicBy = document.getElementById('bottle-music-by');
-const bottleMusicInput = document.getElementById('bottle-music-input');
-const bottleMusicOrderBtn = document.getElementById('bottle-music-order-btn');
-const bottleMusicPriorityBtn = document.getElementById('bottle-music-priority-btn');
-const bottleMusicMuteBtn = document.getElementById('bottle-music-mute-btn');
-let isLocallyMuted = false;
-
 let isGameActive = false;
-let roomMusicTimer = null;
-let isRoomMusicPlaying = false;
-let roomMusicVideoId = null;
 let currentGameMode = 'ffa';
 let localPlayer = {
   id: '',
@@ -989,16 +977,7 @@ function connectToChat(url, nickname) {
       }
     });
 
-    socket.on('room_music_update', async (encryptedPayload) => {
-      try {
-        if (!aesKey) return;
-        const decryptedStr = await decryptText(encryptedPayload, aesKey);
-        const music = JSON.parse(decryptedStr);
-        handleRoomMusicUpdate(music);
-      } catch (err) {
-        console.warn('Ошибка расшифровки room_music_update:', err.message || err);
-      }
-    });
+
   });
 }
 
@@ -2712,6 +2691,17 @@ function startChoiceCountdown(seconds) {
       clearInterval(bottleChoiceTimer);
       bottleChoiceTimer = null;
       if (bottleChoiceOverlay) bottleChoiceOverlay.style.display = 'none';
+      
+      // Авто-отказ при истечении времени на клиенте
+      if (socket && aesKey) {
+        try {
+          encryptText(JSON.stringify({ choice: false }), aesKey).then(payload => {
+            socket.emit('bottle_choice', payload);
+          });
+        } catch (e) {
+          console.error('Ошибка авто-отправки выбора при таймауте:', e);
+        }
+      }
     }
   }, 1000);
 }
@@ -3266,197 +3256,4 @@ if (badgesDrawer) {
   });
 }
 
-// Музыкальная система заказа
-function extractYoutubeVideoId(url) {
-  const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|\&v=)([^#\&\?]*).*/;
-  const match = url.match(regExp);
-  return (match && match[2].length === 11) ? match[2] : url.trim();
-}
 
-async function orderMusic(isPriority) {
-  if (!bottleMusicInput) return;
-  const inputVal = bottleMusicInput.value.trim();
-  if (!inputVal) {
-    alert('Пожалуйста, введите ID или ссылку на YouTube видео.');
-    return;
-  }
-
-  const videoId = extractYoutubeVideoId(inputVal);
-  if (!videoId || videoId.length !== 11) {
-    alert('Некорректная ссылка или ID видео YouTube.');
-    return;
-  }
-
-  const cost = isPriority ? 150 : 50;
-
-  if (isRoomMusicPlaying && !isPriority) {
-    alert('Сейчас играет музыка. Обычный заказ невозможен! Перебить текущий трек можно только вне очереди за 150 🪙 (требуется Premium-аккаунт).');
-    return;
-  }
-
-  if (isPriority) {
-    const isPremium = (premiumCheckbox && premiumCheckbox.checked) || (profilePremiumCheckbox && profilePremiumCheckbox.checked);
-    if (!isPremium) {
-      alert('Функция "Вне очереди" доступна только для Premium-пользователей! Вы можете активировать Premium в профиле.');
-      return;
-    }
-  }
-
-  chrome.storage.local.get(['clickerCoins'], async (res) => {
-    const coins = res.clickerCoins || 0;
-    if (coins < cost) {
-      alert(`Недостаточно монет! Требуется ${cost} 🪙.`);
-      return;
-    }
-
-    const oembedUrl = `https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${videoId}&format=json`;
-    try {
-      const response = await fetch(oembedUrl);
-      if (!response.ok) throw new Error('Video info not found');
-      const data = await response.json();
-      const title = data.title || 'Заказанный трек';
-
-      const newCoins = coins - cost;
-      chrome.storage.local.set({ clickerCoins: newCoins }, async () => {
-        clickerCoins = newCoins;
-        updateClickerUi();
-        updateShopUi();
-        sendClickerStats();
-
-        try {
-          const orderPayload = await encryptText(JSON.stringify({
-            videoId,
-            title,
-            cost,
-            isPriority
-          }), aesKey);
-          socket.emit('order_music', orderPayload);
-          bottleMusicInput.value = '';
-        } catch (err) {
-          console.error('Ошибка шифрования заказа музыки:', err);
-        }
-      });
-    } catch (err) {
-      alert('Не удалось получить информацию о видео. Проверьте правильность ссылки или ID.');
-    }
-  });
-}
-
-if (bottleMusicOrderBtn) {
-  bottleMusicOrderBtn.addEventListener('click', () => orderMusic(false));
-}
-
-if (bottleMusicPriorityBtn) {
-  bottleMusicPriorityBtn.addEventListener('click', () => orderMusic(true));
-}
-
-if (bottleMusicMuteBtn) {
-  bottleMusicMuteBtn.addEventListener('click', () => {
-    isLocallyMuted = !isLocallyMuted;
-    updateMuteButtonUi();
-
-    const globalPlayer = document.getElementById('global-music-player');
-    if (globalPlayer && globalPlayer.contentWindow) {
-      const command = isLocallyMuted ? 'mute' : 'unMute';
-      globalPlayer.contentWindow.postMessage(JSON.stringify({ event: 'command', func: command }), '*');
-      if (!isLocallyMuted) {
-        globalPlayer.contentWindow.postMessage(JSON.stringify({ event: 'command', func: 'setVolume', args: [100] }), '*');
-      }
-    }
-  });
-}
-
-function updateMuteButtonUi() {
-  if (bottleMusicMuteBtn) {
-    bottleMusicMuteBtn.textContent = isLocallyMuted ? '🔇 Звук: Выкл' : '🔊 Звук: Вкл';
-  }
-}
-
-function handleRoomMusicUpdate(music) {
-  if (roomMusicTimer) {
-    clearTimeout(roomMusicTimer);
-    roomMusicTimer = null;
-  }
-
-  if (music && music.videoId) {
-    const timeLeft = music.expiresAt - Date.now();
-    if (timeLeft > 0) {
-      if (bottleMusicStatus) bottleMusicStatus.style.display = 'block';
-      if (bottleMusicTitle) bottleMusicTitle.textContent = music.title;
-      if (bottleMusicBy) bottleMusicBy.textContent = music.orderedBy;
-
-      // Если песня сменилась, принудительно включаем звук для всех
-      if (roomMusicVideoId !== music.videoId) {
-        isLocallyMuted = false;
-        updateMuteButtonUi();
-      }
-
-      playRoomMusic(music.videoId);
-
-      roomMusicTimer = setTimeout(() => {
-        handleRoomMusicUpdate({ videoId: null });
-      }, timeLeft);
-    } else {
-      handleRoomMusicUpdate({ videoId: null });
-    }
-  } else {
-    if (bottleMusicStatus) bottleMusicStatus.style.display = 'none';
-    if (isRoomMusicPlaying) {
-      stopRoomMusic();
-    }
-  }
-}
-
-function playRoomMusic(videoId) {
-  roomMusicVideoId = videoId;
-  isRoomMusicPlaying = true;
-
-  const globalPlayer = document.getElementById('global-music-player');
-  if (globalPlayer) {
-    const extensionOrigin = chrome.runtime.getURL('').slice(0, -1);
-    // Принудительно стартуем с mute=1, чтобы обойти блокировку автоплея браузером
-    globalPlayer.src = `https://www.youtube-nocookie.com/embed/${videoId}?autoplay=1&mute=1&enablejsapi=1&origin=${encodeURIComponent(extensionOrigin)}`;
-  }
-}
-
-function stopRoomMusic() {
-  isRoomMusicPlaying = false;
-  roomMusicVideoId = null;
-  const globalPlayer = document.getElementById('global-music-player');
-  if (globalPlayer) {
-    globalPlayer.src = '';
-  }
-}
-
-// Возобновление воспроизведения при клике на окно (обход блокировки автоплея Chrome)
-window.addEventListener('click', () => {
-  if (isRoomMusicPlaying && roomMusicVideoId) {
-    const globalPlayer = document.getElementById('global-music-player');
-    if (globalPlayer && globalPlayer.contentWindow) {
-      globalPlayer.contentWindow.postMessage(JSON.stringify({ event: 'command', func: 'playVideo' }), '*');
-      if (!isLocallyMuted) {
-        globalPlayer.contentWindow.postMessage(JSON.stringify({ event: 'command', func: 'unMute' }), '*');
-        globalPlayer.contentWindow.postMessage(JSON.stringify({ event: 'command', func: 'setVolume', args: [100] }), '*');
-      }
-    }
-  }
-});
-
-// Слушаем события от YouTube iframe, чтобы снять mute как только плеер будет готов
-window.addEventListener('message', (event) => {
-  if (event.origin !== 'https://www.youtube-nocookie.com' && event.origin !== 'https://www.youtube.com') return;
-  try {
-    const data = JSON.parse(event.data);
-    if (data.event === 'onReady' || data.event === 'infoDelivery') {
-      const globalPlayer = document.getElementById('global-music-player');
-      if (globalPlayer && globalPlayer.contentWindow && isRoomMusicPlaying) {
-        // Как только плеер готов, пытаемся включить звук и запустить
-        globalPlayer.contentWindow.postMessage(JSON.stringify({ event: 'command', func: 'playVideo' }), '*');
-        if (!isLocallyMuted) {
-          globalPlayer.contentWindow.postMessage(JSON.stringify({ event: 'command', func: 'unMute' }), '*');
-          globalPlayer.contentWindow.postMessage(JSON.stringify({ event: 'command', func: 'setVolume', args: [100] }), '*');
-        }
-      }
-    }
-  } catch (err) {}
-});

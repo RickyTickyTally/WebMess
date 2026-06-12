@@ -41,9 +41,15 @@ function getRoomUsers(room) {
 
 // Хранилище таймаутов отключения пользователей (socket.id -> { timeoutId, room, nickname })
 const disconnectTimeouts = new Map();
+// Хранилище таймаутов выхода из игры по закрытию (nickname -> { timeoutId, oldSocketId })
+const gameLeaveTimeouts = new Map();
 
 // Хранилище истории сообщений в комнатах (room -> Array)
 const roomHistories = new Map();
+
+// Глобальная комната для всех игр расширения (Бутылочка, PVP Arena)
+const GLOBAL_GAMES_ROOM = 'global_games';
+let globalGameMode = 'ffa';
 
 // Хранилище режимов игры в комнатах (room -> mode)
 const roomModes = new Map();
@@ -51,8 +57,7 @@ const roomModes = new Map();
 // Хранилище игр в Бутылочку (room -> game state)
 const bottleGames = new Map();
 
-// Хранилище заказанной музыки в комнатах (room -> active music state)
-const roomMusic = new Map();
+
 
 // Хранилище приватизированных комнат (room -> { owner, theme })
 const ROOMS_FILE = path.join(__dirname, 'rooms.json');
@@ -173,6 +178,28 @@ function padWithBots(game) {
   }
 }
 
+function updateGameSocketId(oldSocketId, newSocketId) {
+  const game = bottleGames.get(GLOBAL_GAMES_ROOM);
+  if (game) {
+    const player = game.players.find(p => p.socketId === oldSocketId);
+    if (player) {
+      player.socketId = newSocketId;
+      console.log(`[RECONNECT] Обновлен socketId в Бутылочке с ${oldSocketId} на ${newSocketId}`);
+      
+      if (game.spinnerId === oldSocketId) game.spinnerId = newSocketId;
+      if (game.targetId === oldSocketId) game.targetId = newSocketId;
+      if (game.savedSpinnerId === oldSocketId) game.savedSpinnerId = newSocketId;
+      
+      if (game.choices[oldSocketId] !== undefined) {
+        game.choices[newSocketId] = game.choices[oldSocketId];
+        delete game.choices[oldSocketId];
+      }
+      
+      broadcastBottleState(GLOBAL_GAMES_ROOM);
+    }
+  }
+}
+
 function clearBottleGameTimers(game) {
   if (game.timerId) {
     clearTimeout(game.timerId);
@@ -208,21 +235,31 @@ function resetBottleRound(game) {
 }
 
 function checkBotTurn(room) {
-  const game = bottleGames.get(room);
+  const game = bottleGames.get(GLOBAL_GAMES_ROOM);
   if (!game || game.state !== 'waiting' || game.players.length === 0) return;
 
   const currentSpinner = game.players[game.turnIndex];
-  if (currentSpinner && currentSpinner.isBot) {
+  if (!currentSpinner) return;
+
+  clearBottleGameTimers(game);
+
+  if (currentSpinner.isBot) {
     const delay = 2000 + Math.random() * 1500;
     const timeout = setTimeout(() => {
-      spinBottle(room, currentSpinner.socketId);
+      spinBottle(GLOBAL_GAMES_ROOM, currentSpinner.socketId);
     }, delay);
     game.botTimeouts.push(timeout);
+  } else {
+    // Для человека ставим авто-раскрутку через 7 секунд
+    game.timerId = setTimeout(() => {
+      console.log(`[BOTTLE] Авто-раскрутка по таймауту 7с для игрока ${currentSpinner.nickname}`);
+      spinBottle(GLOBAL_GAMES_ROOM, currentSpinner.socketId);
+    }, 7000);
   }
 }
 
 function spinBottle(room, spinnerId) {
-  const game = bottleGames.get(room);
+  const game = bottleGames.get(GLOBAL_GAMES_ROOM);
   if (!game || game.state !== 'waiting') return;
 
   const currentSpinner = game.players[game.turnIndex];
@@ -245,31 +282,31 @@ function spinBottle(room, spinnerId) {
   const rotations = 4 + Math.floor(Math.random() * 3);
   const totalAngle = 360 * rotations + targetAngle;
 
-  broadcastToRoom(room, 'bottle_spin_start', {
+  broadcastToRoom(GLOBAL_GAMES_ROOM, 'bottle_spin_start', {
     spinnerId: spinnerId,
     targetId: target.socketId,
     angle: totalAngle
   });
 
   game.timerId = setTimeout(() => {
-    startKissingState(room);
+    startKissingState(GLOBAL_GAMES_ROOM);
   }, 4000);
 }
 
 function startKissingState(room) {
-  const game = bottleGames.get(room);
+  const game = bottleGames.get(GLOBAL_GAMES_ROOM);
   if (!game || game.state !== 'spinning') return;
 
   game.state = 'kissing';
   game.choices = {};
 
-  broadcastBottleState(room);
+  broadcastBottleState(GLOBAL_GAMES_ROOM);
 
   const spinner = game.players.find(p => p.socketId === game.spinnerId);
   if (spinner && spinner.isBot) {
     const delay = 1000 + Math.random() * 2000;
     const timeout = setTimeout(() => {
-      submitBottleChoice(room, game.spinnerId, Math.random() < 0.7);
+      submitBottleChoice(GLOBAL_GAMES_ROOM, game.spinnerId, Math.random() < 0.7);
     }, delay);
     game.botTimeouts.push(timeout);
   }
@@ -278,18 +315,18 @@ function startKissingState(room) {
   if (target && target.isBot) {
     const delay = 1500 + Math.random() * 2000;
     const timeout = setTimeout(() => {
-      submitBottleChoice(room, game.targetId, Math.random() < 0.7);
+      submitBottleChoice(GLOBAL_GAMES_ROOM, game.targetId, Math.random() < 0.7);
     }, delay);
     game.botTimeouts.push(timeout);
   }
 
   game.timerId = setTimeout(() => {
-    resolveKissingChoices(room);
+    resolveKissingChoices(GLOBAL_GAMES_ROOM);
   }, 10000);
 }
 
 function submitBottleChoice(room, socketId, choice) {
-  const game = bottleGames.get(room);
+  const game = bottleGames.get(GLOBAL_GAMES_ROOM);
   if (!game || game.state !== 'kissing') return;
 
   if (game.spinnerId !== socketId && game.targetId !== socketId) return;
@@ -300,19 +337,20 @@ function submitBottleChoice(room, socketId, choice) {
   const hasTargetChoice = game.choices[game.targetId] !== undefined;
 
   if (hasSpinnerChoice && hasTargetChoice) {
-    resolveKissingChoices(room);
+    resolveKissingChoices(GLOBAL_GAMES_ROOM);
   }
 }
 
 function resolveKissingChoices(room) {
-  const game = bottleGames.get(room);
+  const game = bottleGames.get(GLOBAL_GAMES_ROOM);
   if (!game || game.state !== 'kissing') return;
 
   clearBottleGameTimers(game);
   game.state = 'result';
 
-  const spinnerChoice = !!game.choices[game.spinnerId];
-  const targetChoice = !!game.choices[game.targetId];
+  // Если выбора нет (таймаут), ставим false (отказ)
+  const spinnerChoice = game.choices[game.spinnerId] === undefined ? false : !!game.choices[game.spinnerId];
+  const targetChoice = game.choices[game.targetId] === undefined ? false : !!game.choices[game.targetId];
   const success = spinnerChoice && targetChoice;
 
   const spinner = game.players.find(p => p.socketId === game.spinnerId);
@@ -321,7 +359,7 @@ function resolveKissingChoices(room) {
   const spinnerName = spinner ? spinner.nickname : 'Кто-то';
   const targetName = target ? target.nickname : 'Кто-то';
 
-  broadcastToRoom(room, 'bottle_kiss_result', {
+  broadcastToRoom(GLOBAL_GAMES_ROOM, 'bottle_kiss_result', {
     success: success,
     spinnerId: game.spinnerId,
     targetId: game.targetId
@@ -331,7 +369,15 @@ function resolveKissingChoices(room) {
   if (success) {
     chatText = `💋 Ура! ${spinnerName} и ${targetName} поцеловались!`;
   } else {
-    chatText = `💔 Увы, поцелуй между ${spinnerName} и ${targetName} не состоялся.`;
+    const spinnerRefused = !spinnerChoice;
+    const targetRefused = !targetChoice;
+    if (spinnerRefused && targetRefused) {
+      chatText = `💔 Увы, ${spinnerName} и ${targetName} оба отказались.`;
+    } else if (spinnerRefused) {
+      chatText = `💔 ${spinnerName} отказался целоваться с ${targetName}.`;
+    } else {
+      chatText = `💔 ${targetName} отказался целоваться с ${spinnerName}.`;
+    }
   }
 
   const systemMessage = {
@@ -345,14 +391,14 @@ function resolveKissingChoices(room) {
     discord: ''
   };
 
-  if (!roomHistories.has(room)) {
-    roomHistories.set(room, []);
+  if (!roomHistories.has(GLOBAL_GAMES_ROOM)) {
+    roomHistories.set(GLOBAL_GAMES_ROOM, []);
   }
-  const history = roomHistories.get(room);
+  const history = roomHistories.get(GLOBAL_GAMES_ROOM);
   history.push(systemMessage);
   if (history.length > 50) history.shift();
 
-  broadcastToRoom(room, 'receive_message', systemMessage);
+  broadcastToRoom(GLOBAL_GAMES_ROOM, 'receive_message', systemMessage);
 
   game.timerId = setTimeout(() => {
     if (game.players.length > 0) {
@@ -375,20 +421,20 @@ function resolveKissingChoices(room) {
     game.targetId = null;
     game.choices = {};
 
-    broadcastBottleState(room);
-    checkBotTurn(room);
+    broadcastBottleState(GLOBAL_GAMES_ROOM);
+    checkBotTurn(GLOBAL_GAMES_ROOM);
   }, 3000);
 }
 
 function broadcastBottleState(room) {
-  const game = bottleGames.get(room);
+  const game = bottleGames.get(GLOBAL_GAMES_ROOM);
   if (!game) return;
 
   const choicesState = {};
   if (game.choices[game.spinnerId] !== undefined) choicesState[game.spinnerId] = true;
   if (game.choices[game.targetId] !== undefined) choicesState[game.targetId] = true;
 
-  broadcastToRoom(room, 'bottle_state', {
+  broadcastToRoom(GLOBAL_GAMES_ROOM, 'bottle_state', {
     players: game.players,
     state: game.state,
     turnIndex: game.turnIndex,
@@ -399,7 +445,7 @@ function broadcastBottleState(room) {
 }
 
 function joinBottleGame(room, socketId, user) {
-  let game = bottleGames.get(room);
+  let game = bottleGames.get(GLOBAL_GAMES_ROOM);
   if (!game) {
     game = {
       players: [],
@@ -411,7 +457,7 @@ function joinBottleGame(room, socketId, user) {
       timerId: null,
       botTimeouts: []
     };
-    bottleGames.set(room, game);
+    bottleGames.set(GLOBAL_GAMES_ROOM, game);
   }
 
   if (game.players.some(p => p.socketId === socketId)) {
@@ -436,15 +482,15 @@ function joinBottleGame(room, socketId, user) {
   }
 
   padWithBots(game);
-  broadcastBottleState(room);
+  broadcastBottleState(GLOBAL_GAMES_ROOM);
 
   if (game.state === 'waiting') {
-    checkBotTurn(room);
+    checkBotTurn(GLOBAL_GAMES_ROOM);
   }
 }
 
 function leaveBottleGame(room, socketId) {
-  const game = bottleGames.get(room);
+  const game = bottleGames.get(GLOBAL_GAMES_ROOM);
   if (!game) return;
 
   const index = game.players.findIndex(p => p.socketId === socketId);
@@ -454,8 +500,8 @@ function leaveBottleGame(room, socketId) {
     const humanCount = game.players.filter(p => !p.isBot).length;
     if (humanCount === 0) {
       clearBottleGameTimers(game);
-      bottleGames.delete(room);
-      broadcastToRoom(room, 'bottle_state', {
+      bottleGames.delete(GLOBAL_GAMES_ROOM);
+      broadcastToRoom(GLOBAL_GAMES_ROOM, 'bottle_state', {
         players: [],
         state: 'waiting',
         turnIndex: 0,
@@ -478,10 +524,10 @@ function leaveBottleGame(room, socketId) {
     }
 
     padWithBots(game);
-    broadcastBottleState(room);
+    broadcastBottleState(GLOBAL_GAMES_ROOM);
 
     if (game.state === 'waiting') {
-      checkBotTurn(room);
+      checkBotTurn(GLOBAL_GAMES_ROOM);
     }
   }
 }
@@ -534,6 +580,19 @@ io.on('connection', (socket) => {
             console.log(`[RECONNECT] Отменен таймаут отключения для ${nickname}`);
           }
           
+          const pendingGameLeave = gameLeaveTimeouts.get(nickname);
+          if (pendingGameLeave) {
+            clearTimeout(pendingGameLeave.timeoutId);
+            gameLeaveTimeouts.delete(nickname);
+            console.log(`[RECONNECT] Отменен таймаут выхода из игры для ${nickname}`);
+            
+            // Перепривязываем старый сокет к новому сокету в играх
+            updateGameSocketId(pendingGameLeave.oldSocketId, socket.id);
+            
+            // В PVP Арене убираем старый фантомный аватар
+            broadcastToRoom(GLOBAL_GAMES_ROOM, 'game_player_left', { id: pendingGameLeave.oldSocketId });
+          }
+
           const oldRoom = oldUser.room;
           users.delete(oldSocketId);
           socketKeys.delete(oldSocketId);
@@ -560,6 +619,7 @@ io.on('connection', (socket) => {
         avatarFrame: avatarFrame || ''
       });
       socket.join(room);
+      socket.join(GLOBAL_GAMES_ROOM);
 
       console.log(`[JOIN] ${nickname} присоеденился к комнате: ${room} (Premium: ${isPremium}, Invisible: ${isInvisible})`);
 
@@ -571,9 +631,9 @@ io.on('connection', (socket) => {
       const encryptedHistory = encryptPayload(JSON.stringify(history), key);
       socket.emit('chat_history', encryptedHistory);
 
-      // Отправляем текущее состояние Бутылочки новому участнику
-      if (bottleGames.has(room)) {
-        const game = bottleGames.get(room);
+      // Отправляем текущее состояние Бутылочки новому участнику из глобальной комнаты
+      if (bottleGames.has(GLOBAL_GAMES_ROOM)) {
+        const game = bottleGames.get(GLOBAL_GAMES_ROOM);
         const choicesState = {};
         if (game.choices[game.spinnerId] !== undefined) choicesState[game.spinnerId] = true;
         if (game.choices[game.targetId] !== undefined) choicesState[game.targetId] = true;
@@ -589,19 +649,7 @@ io.on('connection', (socket) => {
         socket.emit('bottle_state', encryptedBottleState);
       }
 
-      // Отправляем текущую музыку, если она играет
-      if (roomMusic.has(room)) {
-        const music = roomMusic.get(room);
-        if (music.expiresAt > Date.now()) {
-          const encryptedMusic = encryptPayload(JSON.stringify({
-            videoId: music.videoId,
-            title: music.title,
-            orderedBy: music.orderedBy,
-            expiresAt: music.expiresAt
-          }), key);
-          socket.emit('room_music_update', encryptedMusic);
-        }
-      }
+
       
       // Отправляем настройки приватизированной комнаты (владелец, тема)
       if (ownedRooms.has(room)) {
@@ -783,7 +831,7 @@ io.on('connection', (socket) => {
           room: r,
           displayName: roomDisplayName,
           count: count,
-          mode: roomModes.get(r) || 'ffa'
+          mode: globalGameMode
         });
       }
       
@@ -802,7 +850,7 @@ io.on('connection', (socket) => {
       const decryptedStr = decryptPayload(encryptedPayload, key);
       const playerData = JSON.parse(decryptedStr);
       playerData.id = socket.id;
-      broadcastToRoom(user.room, 'game_player_joined', playerData);
+      broadcastToRoom(GLOBAL_GAMES_ROOM, 'game_player_joined', playerData);
     } catch (err) {
       console.error('Ошибка game_join:', err);
     }
@@ -816,7 +864,7 @@ io.on('connection', (socket) => {
       const decryptedStr = decryptPayload(encryptedPayload, key);
       const updateData = JSON.parse(decryptedStr);
       updateData.id = socket.id;
-      broadcastToRoom(user.room, 'game_player_updated', updateData);
+      broadcastToRoom(GLOBAL_GAMES_ROOM, 'game_player_updated', updateData);
     } catch (err) {
       console.error('Ошибка game_update:', err);
     }
@@ -830,7 +878,7 @@ io.on('connection', (socket) => {
       const decryptedStr = decryptPayload(encryptedPayload, key);
       const bulletData = JSON.parse(decryptedStr);
       bulletData.id = socket.id;
-      broadcastToRoom(user.room, 'game_bullet_spawned', bulletData);
+      broadcastToRoom(GLOBAL_GAMES_ROOM, 'game_bullet_spawned', bulletData);
     } catch (err) {
       console.error('Ошибка game_shoot:', err);
     }
@@ -843,7 +891,7 @@ io.on('connection', (socket) => {
     try {
       const decryptedStr = decryptPayload(encryptedPayload, key);
       const hitData = JSON.parse(decryptedStr);
-      broadcastToRoom(user.room, 'game_player_hit', hitData);
+      broadcastToRoom(GLOBAL_GAMES_ROOM, 'game_player_hit', hitData);
     } catch (err) {
       console.error('Ошибка game_hit:', err);
     }
@@ -856,8 +904,8 @@ io.on('connection', (socket) => {
     try {
       const decryptedStr = decryptPayload(encryptedPayload, key);
       const { mode } = JSON.parse(decryptedStr);
-      roomModes.set(user.room, mode);
-      broadcastToRoom(user.room, 'game_mode_updated', { mode });
+      globalGameMode = mode;
+      broadcastToRoom(GLOBAL_GAMES_ROOM, 'game_mode_updated', { mode });
     } catch (err) {
       console.error('Ошибка game_mode_change:', err);
     }
@@ -890,14 +938,14 @@ io.on('connection', (socket) => {
       broadcastToRoom(user.room, 'update_users', getRoomUsers(user.room));
 
       // Обновляем атрибуты игрока в игре Бутылочка, если он за столом
-      const game = bottleGames.get(user.room);
+      const game = bottleGames.get(GLOBAL_GAMES_ROOM);
       if (game) {
         const p = game.players.find(pl => pl.socketId === socket.id);
         if (p) {
           if (badge !== undefined) p.badge = badge;
           if (color !== undefined) p.color = color;
           if (avatarFrame !== undefined) p.avatarFrame = avatarFrame;
-          broadcastBottleState(user.room);
+          broadcastBottleState(GLOBAL_GAMES_ROOM);
         }
       }
     } catch(err) {
@@ -905,112 +953,31 @@ io.on('connection', (socket) => {
     }
   });
 
-  socket.on('order_music', (encryptedPayload) => {
-    const key = socketKeys.get(socket.id);
-    const user = users.get(socket.id);
-    if (!key || !user) return;
-    try {
-      const decryptedStr = decryptPayload(encryptedPayload, key);
-      const { videoId, title, cost, isPriority } = JSON.parse(decryptedStr);
 
-      // Проверка, играет ли сейчас музыка
-      const currentMusic = roomMusic.get(user.room);
-      const isPlaying = currentMusic && (currentMusic.expiresAt > Date.now());
-
-      if (isPlaying && !isPriority) {
-        return; // Обычным заказам нельзя прерывать музыку
-      }
-
-      if (isPriority && !user.isPremium) {
-        return; // Только премиум может перебивать вне очереди
-      }
-
-      if (user.coins < cost) {
-        return; // Недостаточно монет
-      }
-      user.coins -= cost;
-
-      if (roomMusic.has(user.room)) {
-        const oldMusic = roomMusic.get(user.room);
-        if (oldMusic.timerId) clearTimeout(oldMusic.timerId);
-      }
-
-      const trackLength = 240000; // 4 минуты в мс
-      const expiresAt = Date.now() + trackLength;
-
-      const timerId = setTimeout(() => {
-        roomMusic.delete(user.room);
-        broadcastToRoom(user.room, 'room_music_update', { videoId: null, title: null, orderedBy: null });
-      }, trackLength);
-
-      const musicState = {
-        videoId,
-        title,
-        orderedBy: user.nickname,
-        expiresAt,
-        timerId
-      };
-      roomMusic.set(user.room, musicState);
-
-      broadcastToRoom(user.room, 'update_users', getRoomUsers(user.room));
-
-      broadcastToRoom(user.room, 'room_music_update', {
-        videoId,
-        title,
-        orderedBy: user.nickname,
-        expiresAt
-      });
-
-      const systemMessage = {
-        author: '🎵 Музыка',
-        text: isPriority
-          ? `👑 ${user.nickname} вне очереди заказал трек: "${title}"`
-          : `🎵 ${user.nickname} заказал трек: "${title}"`,
-        time: new Date().toISOString(),
-        badge: isPriority ? '👑' : '🎵',
-        color: isPriority ? '#ff9f1c' : '#ffc107',
-        avatar: '',
-        telegram: '',
-        discord: ''
-      };
-
-      if (!roomHistories.has(user.room)) {
-        roomHistories.set(user.room, []);
-      }
-      const history = roomHistories.get(user.room);
-      history.push(systemMessage);
-      if (history.length > 50) history.shift();
-
-      broadcastToRoom(user.room, 'receive_message', systemMessage);
-
-    } catch (err) {
-      console.error('Ошибка order_music:', err);
-    }
-  });
 
   socket.on('game_leave', () => {
     const user = users.get(socket.id);
     if (!user) return;
-    broadcastToRoom(user.room, 'game_player_left', { id: socket.id });
+    broadcastToRoom(GLOBAL_GAMES_ROOM, 'game_player_left', { id: socket.id });
   });
 
   // События игры «Бутылочка»
   socket.on('bottle_join', () => {
     const user = users.get(socket.id);
     if (!user) return;
-    joinBottleGame(user.room, socket.id, user);
+    joinBottleGame(GLOBAL_GAMES_ROOM, socket.id, user);
   });
 
   socket.on('bottle_leave', () => {
     const user = users.get(socket.id);
     if (!user) return;
-    leaveBottleGame(user.room, socket.id);
+    leaveBottleGame(GLOBAL_GAMES_ROOM, socket.id);
   });
 
   socket.on('bottle_spin', () => {
     const user = users.get(socket.id);
     if (!user) return;
-    spinBottle(user.room, socket.id);
+    spinBottle(GLOBAL_GAMES_ROOM, socket.id);
   });
 
   socket.on('bottle_buy_spin', (encryptedPayload) => {
@@ -1025,7 +992,7 @@ io.on('connection', (socket) => {
         return; // Недостаточно монет
       }
 
-      const game = bottleGames.get(user.room);
+      const game = bottleGames.get(GLOBAL_GAMES_ROOM);
       if (!game || game.state !== 'waiting') return;
 
       const playerIndex = game.players.findIndex(p => p.socketId === socket.id);
@@ -1051,7 +1018,7 @@ io.on('connection', (socket) => {
       broadcastToRoom(user.room, 'update_users', getRoomUsers(user.room));
 
       // Запускаем вращение
-      spinBottle(user.room, socket.id);
+      spinBottle(GLOBAL_GAMES_ROOM, socket.id);
 
     } catch (err) {
       console.error('Ошибка bottle_buy_spin:', err);
@@ -1065,7 +1032,7 @@ io.on('connection', (socket) => {
     try {
       const decryptedStr = decryptPayload(encryptedPayload, key);
       const { choice } = JSON.parse(decryptedStr);
-      submitBottleChoice(user.room, socket.id, choice);
+      submitBottleChoice(GLOBAL_GAMES_ROOM, socket.id, choice);
     } catch (err) {
       console.error('Ошибка расшифровки bottle_choice:', err);
     }
@@ -1078,9 +1045,18 @@ io.on('connection', (socket) => {
       const { room, nickname } = user;
       console.log(`[-] Запланировано отключение ${nickname} от комнаты ${room} через 30 секунд`);
 
-      // Немедленно убираем игрока из игры
-      broadcastToRoom(room, 'game_player_left', { id: socket.id });
-      leaveBottleGame(room, socket.id);
+      // Отложенный выход из игр на 20 секунд (для сохранения места за столом)
+      const gameTimeoutId = setTimeout(() => {
+        console.log(`[-] Игрок ${nickname} удален из игр по таймауту 20с`);
+        broadcastToRoom(GLOBAL_GAMES_ROOM, 'game_player_left', { id: socket.id });
+        leaveBottleGame(GLOBAL_GAMES_ROOM, socket.id);
+        gameLeaveTimeouts.delete(nickname);
+      }, 20000);
+
+      gameLeaveTimeouts.set(nickname, {
+        timeoutId: gameTimeoutId,
+        oldSocketId: socket.id
+      });
 
       const timeoutId = setTimeout(() => {
         users.delete(socket.id);
