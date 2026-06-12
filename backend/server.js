@@ -62,14 +62,14 @@ const bottleChatHistory = [];
 
 // Хранилище еды в PVP Арене (Slither.io)
 let gameFoods = [];
-const MAX_FOODS = 150;
+const MAX_FOODS = 1000;
 const FOOD_COLORS = ['#ff3333', '#33ff33', '#3333ff', '#ffff33', '#ff33ff', '#33ffff', '#ff9900', '#9900ff'];
 
 function createRandomFood() {
   return {
     id: 'food_' + Math.random().toString(36).substr(2, 9),
-    x: Math.random() * 2000,
-    y: Math.random() * 2000,
+    x: Math.random() * 4000,
+    y: Math.random() * 4000,
     size: 2 + Math.random() * 4,
     color: FOOD_COLORS[Math.floor(Math.random() * FOOD_COLORS.length)]
   };

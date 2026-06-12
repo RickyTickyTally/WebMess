@@ -6,6 +6,15 @@ if (urlParams.get('tab') === 'true') {
   document.body.classList.add('mode-tab');
 }
 
+// Connect to background service worker and clear badge
+try {
+  chrome.runtime.connect({ name: "popup" });
+  chrome.action.setBadgeText({ text: "" });
+} catch (e) {
+  console.warn("Background port/badge connection failed:", e);
+}
+
+
 // DOM Элементы
 const blockedScreen = document.getElementById('blocked-screen');
 const authScreen = document.getElementById('auth-screen');
@@ -102,12 +111,13 @@ const shopCoinsDisplay = document.getElementById('shop-coins-display');
 const shopTaskPro = document.getElementById('shop-task-pro');
 const shopTaskLightning = document.getElementById('shop-task-lightning');
 
+const MAP_SIZE = 4000;
 let isGameActive = false;
 let currentGameMode = 'ffa';
 let localPlayer = {
   id: '',
-  x: 1000,
-  y: 1000,
+  x: 2000,
+  y: 2000,
   angle: 0,
   nickname: '',
   hp: 100,
@@ -1476,8 +1486,8 @@ function startGame() {
   gameQuitBtn.style.display = 'block';
   
   localPlayer.hp = 100;
-  localPlayer.x = Math.random() * 1800 + 100;
-  localPlayer.y = Math.random() * 1800 + 100;
+  localPlayer.x = Math.random() * (MAP_SIZE - 200) + 100;
+  localPlayer.y = Math.random() * (MAP_SIZE - 200) + 100;
   localPlayer.score = 0;
   localPlayer.deaths = 0;
   localPlayer.length = 5;
@@ -1604,8 +1614,8 @@ function manageBots() {
     gameBots.push({
       id: botId,
       nickname: nickname,
-      x: Math.random() * 1800 + 100,
-      y: Math.random() * 1800 + 100,
+      x: Math.random() * (MAP_SIZE - 200) + 100,
+      y: Math.random() * (MAP_SIZE - 200) + 100,
       hp: 100,
       angle: Math.random() * Math.PI * 2,
       team: botTeam,
@@ -1673,8 +1683,8 @@ function updateBots() {
     const speed = 2.0;
     bot.x += Math.cos(bot.angle) * speed;
     bot.y += Math.sin(bot.angle) * speed;
-    bot.x = Math.max(10, Math.min(1990, bot.x));
-    bot.y = Math.max(10, Math.min(1990, bot.y));
+    bot.x = Math.max(10, Math.min(MAP_SIZE - 10, bot.x));
+    bot.y = Math.max(10, Math.min(MAP_SIZE - 10, bot.y));
     
     // Update body segments history
     bot.history.unshift({ x: bot.x, y: bot.y });
@@ -1737,8 +1747,8 @@ function updateLocalPlayer() {
   localPlayer.x += Math.cos(localPlayer.angle) * speed;
   localPlayer.y += Math.sin(localPlayer.angle) * speed;
   
-  localPlayer.x = Math.max(10, Math.min(1990, localPlayer.x));
-  localPlayer.y = Math.max(10, Math.min(1990, localPlayer.y));
+  localPlayer.x = Math.max(10, Math.min(MAP_SIZE - 10, localPlayer.x));
+  localPlayer.y = Math.max(10, Math.min(MAP_SIZE - 10, localPlayer.y));
   
   // Boost decay
   if (canBoost) {
@@ -1888,8 +1898,8 @@ function checkSnakeCollisions() {
     setTimeout(() => {
       // Respawn
       localPlayer.hp = 100;
-      localPlayer.x = Math.random() * 1800 + 100;
-      localPlayer.y = Math.random() * 1800 + 100;
+      localPlayer.x = Math.random() * (MAP_SIZE - 200) + 100;
+      localPlayer.y = Math.random() * (MAP_SIZE - 200) + 100;
       localPlayer.length = 5;
       localPlayer.body = [];
       localPlayer.history = [];
@@ -1972,8 +1982,8 @@ function checkSnakeCollisions() {
       // Respawn bot
       setTimeout(() => {
         bot.hp = 100;
-        bot.x = Math.random() * 1800 + 100;
-        bot.y = Math.random() * 1800 + 100;
+        bot.x = Math.random() * (MAP_SIZE - 200) + 100;
+        bot.y = Math.random() * (MAP_SIZE - 200) + 100;
         bot.length = 5;
         bot.body = [];
         bot.history = [];
@@ -2093,23 +2103,23 @@ function drawGame() {
   gameCtx.strokeStyle = 'rgba(128, 90, 213, 0.15)';
   gameCtx.lineWidth = 1;
   const gridSize = 100;
-  for (let x = 0; x <= 2000; x += gridSize) {
+  for (let x = 0; x <= MAP_SIZE; x += gridSize) {
     gameCtx.beginPath();
     gameCtx.moveTo(x, 0);
-    gameCtx.lineTo(x, 2000);
+    gameCtx.lineTo(x, MAP_SIZE);
     gameCtx.stroke();
   }
-  for (let y = 0; y <= 2000; y += gridSize) {
+  for (let y = 0; y <= MAP_SIZE; y += gridSize) {
     gameCtx.beginPath();
     gameCtx.moveTo(0, y);
-    gameCtx.lineTo(2000, y);
+    gameCtx.lineTo(MAP_SIZE, y);
     gameCtx.stroke();
   }
   
   // Draw boundary borders
   gameCtx.strokeStyle = '#805ad5';
   gameCtx.lineWidth = 5;
-  gameCtx.strokeRect(0, 0, 2000, 2000);
+  gameCtx.strokeRect(0, 0, MAP_SIZE, MAP_SIZE);
   
   // Draw food particles
   gameFoods.forEach(food => {
@@ -2172,8 +2182,8 @@ function drawGame() {
   
   // Draw local player dot
   if (localPlayer.hp > 0) {
-    const dotX = mapX + (localPlayer.x / 2000) * mapSize;
-    const dotY = mapY + (localPlayer.y / 2000) * mapSize;
+    const dotX = mapX + (localPlayer.x / MAP_SIZE) * mapSize;
+    const dotY = mapY + (localPlayer.y / MAP_SIZE) * mapSize;
     gameCtx.beginPath();
     gameCtx.arc(dotX, dotY, 2.5, 0, Math.PI * 2);
     gameCtx.fillStyle = '#00d2ff';
@@ -2183,8 +2193,8 @@ function drawGame() {
   // Draw bot dots
   gameBots.forEach(bot => {
     if (bot.hp > 0) {
-      const dotX = mapX + (bot.x / 2000) * mapSize;
-      const dotY = mapY + (bot.y / 2000) * mapSize;
+      const dotX = mapX + (bot.x / MAP_SIZE) * mapSize;
+      const dotY = mapY + (bot.y / MAP_SIZE) * mapSize;
       gameCtx.beginPath();
       gameCtx.arc(dotX, dotY, 1.5, 0, Math.PI * 2);
       gameCtx.fillStyle = '#ff9f1c';
@@ -2195,8 +2205,8 @@ function drawGame() {
   // Draw other player dots
   gamePlayers.forEach(p => {
     if (p.hp > 0) {
-      const dotX = mapX + (p.x / 2000) * mapSize;
-      const dotY = mapY + (p.y / 2000) * mapSize;
+      const dotX = mapX + (p.x / MAP_SIZE) * mapSize;
+      const dotY = mapY + (p.y / MAP_SIZE) * mapSize;
       gameCtx.beginPath();
       gameCtx.arc(dotX, dotY, 1.5, 0, Math.PI * 2);
       gameCtx.fillStyle = p.color || '#ff9f1c';
