@@ -3413,7 +3413,8 @@ function playRoomMusic(videoId) {
 
   const globalPlayer = document.getElementById('global-music-player');
   if (globalPlayer) {
-    globalPlayer.src = `https://www.youtube-nocookie.com/embed/${videoId}?autoplay=1&mute=${isLocallyMuted ? 1 : 0}&enablejsapi=1`;
+    const extensionOrigin = chrome.runtime.getURL('').slice(0, -1);
+    globalPlayer.src = `https://www.youtube-nocookie.com/embed/${videoId}?autoplay=1&mute=${isLocallyMuted ? 1 : 0}&enablejsapi=1&origin=${encodeURIComponent(extensionOrigin)}`;
   }
 }
 
