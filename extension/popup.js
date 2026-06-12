@@ -185,6 +185,7 @@ function showScreen(screenId) {
   authScreen.style.display = 'none';
   chatScreen.style.display = 'none';
   profileScreen.style.display = 'none';
+  if (gamesScreen) gamesScreen.style.display = 'none';
   document.getElementById(`${screenId}-screen`).style.display = 'flex';
 }
 
