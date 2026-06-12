@@ -3,6 +3,8 @@ const http = require('http');
 const { Server } = require('socket.io');
 const cors = require('cors');
 const crypto = require('crypto');
+const fs = require('fs');
+const path = require('path');
 
 const app = express();
 app.use(cors());
@@ -29,6 +31,25 @@ const roomHistories = new Map();
 
 // Хранилище режимов игры в комнатах (room -> mode)
 const roomModes = new Map();
+
+// Хранилище приватизированных комнат (room -> { owner, theme })
+const ROOMS_FILE = path.join(__dirname, 'rooms.json');
+const ownedRooms = new Map();
+
+if (fs.existsSync(ROOMS_FILE)) {
+  try {
+    const data = fs.readFileSync(ROOMS_FILE, 'utf8');
+    const parsed = JSON.parse(data);
+    for (const [room, settings] of Object.entries(parsed)) {
+      ownedRooms.set(room, settings);
+    }
+  } catch(e) { console.error('Ошибка чтения rooms.json', e); }
+}
+
+function saveRooms() {
+  const obj = Object.fromEntries(ownedRooms);
+  fs.writeFileSync(ROOMS_FILE, JSON.stringify(obj, null, 2), 'utf8');
+}
 
 // Вспомогательная функция внедрения реферальных меток (CPA-партнерки)
 function injectReferralTags(text) {
@@ -214,6 +235,14 @@ io.on('connection', (socket) => {
       const history = roomHistories.get(room) || [];
       const encryptedHistory = encryptPayload(JSON.stringify(history), key);
       socket.emit('chat_history', encryptedHistory);
+      
+      // Отправляем настройки приватизированной комнаты (владелец, тема)
+      if (ownedRooms.has(room)) {
+        const settings = ownedRooms.get(room);
+        socket.emit('room_settings', encryptPayload(JSON.stringify(settings), key));
+      } else {
+        socket.emit('room_settings', encryptPayload(JSON.stringify({ owner: null }), key));
+      }
     } catch (err) {
       console.error(`Ошибка join_room для сокета ${socket.id}:`, err);
     }
@@ -258,6 +287,46 @@ io.on('connection', (socket) => {
       broadcastToRoom(user.room, 'receive_message', messageData);
     } catch (err) {
       console.error(`Ошибка обработки сообщения от сокета ${socket.id}:`, err);
+    }
+  });
+
+  // UGC: Приватизация комнат и кастомизация
+  socket.on('claim_room', () => {
+    const user = users.get(socket.id);
+    const key = socketKeys.get(socket.id);
+    if (!user || !key) return;
+
+    if (!ownedRooms.has(user.room)) {
+      const settings = {
+        owner: user.nickname,
+        theme: 'white' // Дефолтная тема
+      };
+      ownedRooms.set(user.room, settings);
+      saveRooms();
+      console.log(`[UGC] Пользователь ${user.nickname} захватил комнату ${user.room}`);
+      broadcastToRoom(user.room, 'room_settings_updated', settings);
+    }
+  });
+
+  socket.on('update_room_settings', (encryptedPayload) => {
+    const user = users.get(socket.id);
+    const key = socketKeys.get(socket.id);
+    if (!user || !key) return;
+
+    try {
+      const decryptedStr = decryptPayload(encryptedPayload, key);
+      const newSettings = JSON.parse(decryptedStr);
+      
+      const currentSettings = ownedRooms.get(user.room);
+      if (currentSettings && currentSettings.owner === user.nickname) {
+        currentSettings.theme = newSettings.theme || currentSettings.theme;
+        ownedRooms.set(user.room, currentSettings);
+        saveRooms();
+        console.log(`[UGC] Владелец ${user.nickname} обновил тему комнаты ${user.room} на ${currentSettings.theme}`);
+        broadcastToRoom(user.room, 'room_settings_updated', currentSettings);
+      }
+    } catch (err) {
+      console.error(`Ошибка update_room_settings для сокета ${socket.id}:`, err);
     }
   });
 

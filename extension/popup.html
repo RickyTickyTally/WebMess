@@ -769,6 +769,13 @@
               <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/>
             </svg>
           </button>
+          <!-- Управление комнатой (UGC) -->
+          <button id="room-manage-btn" title="Управление комнатой" style="background: none; border: none; color: white; cursor: pointer; padding: 4px; display: flex; align-items: center; justify-content: center; transition: opacity 0.2s; outline: none;">
+            <svg style="width: 20px; height: 20px;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path>
+              <polyline points="9 22 9 12 15 12 15 22"></polyline>
+            </svg>
+          </button>
           <!-- Кнопка человечка как в скайпе -->
           <button id="profile-btn" title="Профиль" style="background: none; border: none; color: white; cursor: pointer; padding: 4px; display: flex; align-items: center; justify-content: center; transition: opacity 0.2s; outline: none;">
             <svg viewBox="0 0 24 24" fill="currentColor" style="width: 20px; height: 20px;">
@@ -988,6 +995,38 @@
 
       </div>
     </div>
+
+    <!-- 5. Экран управления комнатой (UGC) -->
+    <div id="room-settings-screen" class="screen" style="justify-content: flex-start; padding: 20px 24px; text-align: center; overflow-y: auto;">
+      <h3 style="margin: 0 0 16px 0; font-size: 18px; color: var(--text-color);">Управление комнатой</h3>
+      
+      <div id="room-unowned-view" style="display: none; flex-direction: column; gap: 16px;">
+        <p style="font-size: 14px; color: var(--text-muted);">Эта комната (URL) пока никем не занята. Вы можете захватить её и стать владельцем!</p>
+        <button id="claim-room-btn" style="padding: 10px; background-color: var(--button-bg); color: var(--button-text); border: none; border-radius: 6px; cursor: pointer; font-weight: bold;">Захватить комнату</button>
+      </div>
+
+      <div id="room-owned-other-view" style="display: none; flex-direction: column; gap: 16px;">
+        <p style="font-size: 14px; color: var(--text-muted);">Эта комната уже занята.</p>
+        <div style="font-size: 16px; font-weight: bold;">Владелец: <span id="room-owner-name-display" style="color: var(--accent-color);"></span></div>
+      </div>
+
+      <div id="room-owned-self-view" style="display: none; flex-direction: column; gap: 16px; text-align: left;">
+        <div style="text-align: center; font-size: 16px; font-weight: bold; margin-bottom: 8px;">Вы владелец этой комнаты 👑</div>
+        
+        <label class="profile-field-label">Тема комнаты (видят все)</label>
+        <div style="display: flex; gap: 8px; margin-bottom: 16px; flex-wrap: wrap;">
+          <button class="theme-select-btn room-theme-btn" data-theme="white">White</button>
+          <button class="theme-select-btn room-theme-btn" data-theme="black" style="background:#121212; color:white;">Black</button>
+          <button class="theme-select-btn room-theme-btn" data-theme="blue" style="background:#0b132b; color:#48cae4;">Blue</button>
+          <button class="theme-select-btn room-theme-btn" data-theme="purple" style="background:#120a2a; color:#c084fc;">Purple</button>
+          <button class="theme-select-btn room-theme-btn" data-theme="space" style="background:linear-gradient(90deg, #321a5c, #0d1e3d); color:#38bdf8; border:1px solid #6b46c1;">Space</button>
+        </div>
+        
+        <button id="save-room-settings-btn" style="padding: 10px; background-color: var(--accent-color); color: var(--tab-active-text); border: none; border-radius: 6px; cursor: pointer; font-weight: bold; margin-top: auto;">Сохранить настройки</button>
+      </div>
+      
+      <button id="close-room-settings-btn" style="margin-top: 16px; padding: 8px; background: transparent; color: var(--text-muted); border: 1px solid var(--border-color); border-radius: 6px; cursor: pointer;">Назад в чат</button>
+    </div>
   </div>
 
   <!-- Модальное окно участников в сети -->
@@ -1002,7 +1041,6 @@
       </div>
     </div>
   </div>
-
   <script src="popup.js"></script>
 </body>
 </html>

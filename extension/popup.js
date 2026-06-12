@@ -186,6 +186,8 @@ function showScreen(screenId) {
   chatScreen.style.display = 'none';
   profileScreen.style.display = 'none';
   if (gamesScreen) gamesScreen.style.display = 'none';
+  const roomSettingsScreen = document.getElementById('room-settings-screen');
+  if (roomSettingsScreen) roomSettingsScreen.style.display = 'none';
   document.getElementById(`${screenId}-screen`).style.display = 'flex';
 }
 
@@ -795,6 +797,29 @@ function connectToChat(url, nickname) {
         renderGameRoomsList(rooms);
       } catch (err) {
         console.error('Ошибка расшифровки game_rooms_list:', err);
+      }
+    });
+
+    // UGC: Настройки комнаты
+    socket.on('room_settings', async (encryptedPayload) => {
+      try {
+        if (!aesKey) return;
+        const decryptedStr = await decryptText(encryptedPayload, aesKey);
+        const settings = JSON.parse(decryptedStr);
+        applyRoomSettings(settings);
+      } catch (err) {
+        console.error('Ошибка расшифровки room_settings:', err);
+      }
+    });
+
+    socket.on('room_settings_updated', async (encryptedPayload) => {
+      try {
+        if (!aesKey) return;
+        const decryptedStr = await decryptText(encryptedPayload, aesKey);
+        const settings = JSON.parse(decryptedStr);
+        applyRoomSettings(settings);
+      } catch (err) {
+        console.error('Ошибка расшифровки room_settings_updated:', err);
       }
     });
   });
@@ -1796,4 +1821,114 @@ function gameLoop() {
   drawGame();
   
   gameLoopId = requestAnimationFrame(gameLoop);
+}
+
+// --- ИГРОВОЙ ДВИЖОК PVP КОНЕЦ ---
+
+// --- UGC: ПРИВАТИЗАЦИЯ И КАСТОМИЗАЦИЯ КОМНАТ ---
+let currentRoomSettings = { owner: null, theme: null };
+
+const roomManageBtn = document.getElementById('room-manage-btn');
+const closeRoomSettingsBtn = document.getElementById('close-room-settings-btn');
+const claimRoomBtn = document.getElementById('claim-room-btn');
+const saveRoomSettingsBtn = document.getElementById('save-room-settings-btn');
+
+const roomUnownedView = document.getElementById('room-unowned-view');
+const roomOwnedOtherView = document.getElementById('room-owned-other-view');
+const roomOwnedSelfView = document.getElementById('room-owned-self-view');
+const roomOwnerNameDisplay = document.getElementById('room-owner-name-display');
+let selectedRoomTheme = 'white';
+
+if (roomManageBtn) {
+  roomManageBtn.addEventListener('click', () => {
+    // Открываем экран управления комнатой
+    updateRoomSettingsUi();
+    showScreen('room-settings');
+  });
+}
+
+if (closeRoomSettingsBtn) {
+  closeRoomSettingsBtn.addEventListener('click', () => {
+    showScreen('chat');
+  });
+}
+
+if (claimRoomBtn) {
+  claimRoomBtn.addEventListener('click', () => {
+    if (socket && aesKey) {
+      socket.emit('claim_room');
+    }
+  });
+}
+
+document.querySelectorAll('.room-theme-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    selectedRoomTheme = btn.dataset.theme;
+    document.querySelectorAll('.room-theme-btn').forEach(b => {
+      b.classList.toggle('active', b.dataset.theme === selectedRoomTheme);
+    });
+  });
+});
+
+if (saveRoomSettingsBtn) {
+  saveRoomSettingsBtn.addEventListener('click', async () => {
+    if (socket && aesKey) {
+      try {
+        const payload = await encryptText(JSON.stringify({ theme: selectedRoomTheme }), aesKey);
+        socket.emit('update_room_settings', payload);
+        showScreen('chat');
+      } catch (err) {
+        console.error('Ошибка сохранения настроек комнаты', err);
+      }
+    }
+  });
+}
+
+function updateRoomSettingsUi() {
+  roomUnownedView.style.display = 'none';
+  roomOwnedOtherView.style.display = 'none';
+  roomOwnedSelfView.style.display = 'none';
+
+  if (!currentRoomSettings.owner) {
+    roomUnownedView.style.display = 'flex';
+  } else if (currentRoomSettings.owner === currentNickname) {
+    roomOwnedSelfView.style.display = 'flex';
+    selectedRoomTheme = currentRoomSettings.theme || 'white';
+    document.querySelectorAll('.room-theme-btn').forEach(b => {
+      b.classList.toggle('active', b.dataset.theme === selectedRoomTheme);
+    });
+  } else {
+    roomOwnedOtherView.style.display = 'flex';
+    roomOwnerNameDisplay.textContent = currentRoomSettings.owner;
+  }
+}
+
+function applyRoomSettings(settings) {
+  currentRoomSettings = settings;
+  
+  const headerTitle = document.getElementById('chat-header-title');
+  if (settings.owner) {
+    let hostname = 'Site Chat';
+    try {
+      hostname = new URL(currentUrl).hostname;
+    } catch (e) {}
+    headerTitle.innerHTML = `<span style="font-size: 11px; opacity: 0.8;">Владелец: </span><span style="color: var(--author-text);">${settings.owner}</span><br><span style="font-size: 10px; opacity: 0.6;">${hostname}</span>`;
+  } else {
+    try {
+      headerTitle.textContent = new URL(currentUrl).hostname;
+    } catch (e) {
+      headerTitle.textContent = 'Site Chat';
+    }
+  }
+
+  // Применяем тему комнаты, если она задана, иначе возвращаем локальную тему пользователя
+  if (settings.theme) {
+    document.body.className = `theme-${settings.theme}`;
+  } else {
+    document.body.className = `theme-${originalTheme}`;
+  }
+  
+  if (document.getElementById('room-settings-screen').style.display === 'flex') {
+    updateRoomSettingsUi();
+  }
 }
