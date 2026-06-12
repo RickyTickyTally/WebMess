@@ -35,6 +35,19 @@ const profileAvatarFileInput = document.getElementById('profile-avatar-file-inpu
 const profileTelegramInput = document.getElementById('profile-telegram-input');
 const profileDiscordInput = document.getElementById('profile-discord-input');
 
+const profileNicknameTitle = document.getElementById('profile-nickname-title');
+const profileLevelText = document.getElementById('profile-level-text');
+const profileMessagesStat = document.getElementById('profile-messages-stat');
+const badgeCreator = document.getElementById('badge-creator');
+const badgePro = document.getElementById('badge-pro');
+const badgeLightning = document.getElementById('badge-lightning');
+const profilePhoneInput = document.getElementById('profile-phone-input');
+const profileBioInput = document.getElementById('profile-bio-input');
+const profileBirthdayInput = document.getElementById('profile-birthday-input');
+
+let originalTheme = 'white';
+let selectedTheme = 'white';
+
 const usersListContainer = document.getElementById('users-list-container');
 const usersCountText = document.getElementById('users-count-text');
 const avatarListContainer = document.getElementById('avatar-list-container');
@@ -630,6 +643,12 @@ async function sendMessage() {
       const encrypted = await encryptText(text, aesKey);
       socket.emit('send_message', encrypted);
       messageInput.value = '';
+
+      // Увеличиваем счетчик отправленных сообщений
+      chrome.storage.local.get(['messagesSentCount'], (res) => {
+        const count = (res.messagesSentCount || 0) + 1;
+        chrome.storage.local.set({ messagesSentCount: count });
+      });
     } catch (err) {
       console.error('Ошибка отправки сообщения:', err);
     }
@@ -674,8 +693,13 @@ refreshChatBtn.addEventListener('click', () => {
 
 // Открытие экрана профиля
 profileBtn.addEventListener('click', () => {
-  chrome.storage.local.get(['nickname', 'isPremium', 'premiumBadge', 'premiumColor', 'isInvisible', 'avatar', 'telegram', 'discord'], (result) => {
+  chrome.storage.local.get([
+    'nickname', 'isPremium', 'premiumBadge', 'premiumColor', 'isInvisible',
+    'avatar', 'telegram', 'discord', 'phone', 'bio', 'birthday', 'theme', 'messagesSentCount'
+  ], (result) => {
     profileNicknameInput.value = result.nickname || '';
+    profileNicknameTitle.textContent = result.nickname || 'Пользователь';
+    
     profilePremiumCheckbox.checked = result.isPremium || false;
     profilePremiumOptions.style.display = profilePremiumCheckbox.checked ? 'flex' : 'none';
     profilePremiumBadge.value = result.premiumBadge || '';
@@ -683,6 +707,46 @@ profileBtn.addEventListener('click', () => {
     profileInvisibleCheckbox.checked = result.isInvisible || false;
     profileTelegramInput.value = result.telegram || '';
     profileDiscordInput.value = result.discord || '';
+    
+    profilePhoneInput.value = result.phone || '';
+    profileBioInput.value = result.bio || '';
+    profileBirthdayInput.value = result.birthday || '';
+    
+    const messagesSent = result.messagesSentCount || 0;
+    profileMessagesStat.textContent = messagesSent;
+    
+    const level = Math.floor(messagesSent / 10) + 1;
+    profileLevelText.textContent = `Уровень ${level}`;
+    
+    // Badges
+    if (result.isPremium) {
+      badgeCreator.classList.add('unlocked');
+    } else {
+      badgeCreator.classList.remove('unlocked');
+    }
+    if (messagesSent >= 10) {
+      badgePro.classList.add('unlocked');
+    } else {
+      badgePro.classList.remove('unlocked');
+    }
+    if (messagesSent >= 50) {
+      badgeLightning.classList.add('unlocked');
+    } else {
+      badgeLightning.classList.remove('unlocked');
+    }
+    
+    // Theme
+    const theme = result.theme || 'white';
+    originalTheme = theme;
+    selectedTheme = theme;
+    document.querySelectorAll('.theme-select-btn').forEach(btn => {
+      if (btn.dataset.theme === theme) {
+        btn.classList.add('active');
+      } else {
+        btn.classList.remove('active');
+      }
+    });
+    document.body.className = `theme-${theme}`;
     
     currentAvatar = result.avatar || '';
     if (currentAvatar) {
@@ -726,6 +790,10 @@ saveProfileBtn.addEventListener('click', () => {
     const isInvisible = isPremium ? profileInvisibleCheckbox.checked : false;
     const telegram = profileTelegramInput.value.trim();
     const discord = profileDiscordInput.value.trim();
+    const phone = profilePhoneInput.value.trim();
+    const bio = profileBioInput.value.trim();
+    const birthday = profileBirthdayInput.value;
+    const theme = selectedTheme;
 
     chrome.storage.local.set({ 
       nickname,
@@ -735,9 +803,14 @@ saveProfileBtn.addEventListener('click', () => {
       isInvisible,
       avatar: currentAvatar,
       telegram,
-      discord
+      discord,
+      phone,
+      bio,
+      birthday,
+      theme
     }, () => {
       currentNickname = nickname;
+      originalTheme = theme;
       // Переподключаемся к чату для обновления данных сессии
       switchChatRoom(currentUrl);
     });
@@ -746,6 +819,7 @@ saveProfileBtn.addEventListener('click', () => {
 
 // Отмена изменений в профиле
 cancelProfileBtn.addEventListener('click', () => {
+  document.body.className = `theme-${originalTheme}`;
   showScreen('chat');
 });
 
@@ -786,8 +860,29 @@ messagesContainer.addEventListener('click', (e) => {
   }
 });
 
+// Обработчик выбора тем
+document.addEventListener('click', (e) => {
+  const themeBtn = e.target.closest('.theme-select-btn');
+  if (themeBtn) {
+    const theme = themeBtn.dataset.theme;
+    document.querySelectorAll('.theme-select-btn').forEach(btn => {
+      btn.classList.toggle('active', btn === themeBtn);
+    });
+    document.body.className = `theme-${theme}`;
+    selectedTheme = theme;
+  }
+});
+
 // --- ТОЧКА ВХОДА ---
 async function init() {
+  // Загружаем сохраненную тему
+  chrome.storage.local.get(['theme'], (res) => {
+    const theme = res.theme || 'white';
+    originalTheme = theme;
+    selectedTheme = theme;
+    document.body.className = `theme-${theme}`;
+  });
+
   // Получаем текущую активную вкладку
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   
