@@ -1465,9 +1465,7 @@ document.addEventListener('touchmove', (e) => {
 }, { passive: true });
 
 function startGame() {
-  if (document.body.classList.contains('mode-tab')) {
-    document.body.classList.add('game-fullscreen');
-  }
+  document.body.classList.add('game-fullscreen');
   isGameActive = true;
   gameStartOverlay.style.display = 'none';
   gameQuitBtn.style.display = 'block';
