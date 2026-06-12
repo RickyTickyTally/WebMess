@@ -2787,13 +2787,18 @@ function renderBottlePlayers(players, spinnerId, targetId, turnIndex) {
     playerDiv.title = player.nickname + (player.isBot ? ' 🤖' : '') + (player.socketId === socket.id ? ' (Вы)' : '');
 
     const nameLabel = document.createElement('div');
-    nameLabel.textContent = player.nickname.length > 8 ? player.nickname.substring(0, 7) + '..' : player.nickname;
+    const displayNickname = player.nickname.length > 8 ? player.nickname.substring(0, 7) + '..' : player.nickname;
+    nameLabel.textContent = (player.badge ? player.badge + ' ' : '') + displayNickname;
     nameLabel.style.position = 'absolute';
     nameLabel.style.bottom = '-14px';
     nameLabel.style.fontSize = '8px';
-    nameLabel.style.width = '50px';
+    nameLabel.style.width = '60px';
     nameLabel.style.textAlign = 'center';
-    nameLabel.style.color = 'var(--text-color)';
+    if (player.color) {
+      nameLabel.style.color = player.color;
+    } else {
+      nameLabel.style.color = 'var(--text-color)';
+    }
     nameLabel.style.textShadow = '0 1px 2px rgba(0,0,0,0.5)';
     nameLabel.style.fontWeight = 'bold';
     nameLabel.style.left = '50%';

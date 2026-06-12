@@ -404,6 +404,7 @@ function joinBottleGame(room, socketId, user) {
     avatar: user.avatar || '',
     badge: user.badge || '',
     color: user.color || '',
+    avatarFrame: user.avatarFrame || '',
     isBot: false
   };
 
@@ -434,6 +435,14 @@ function leaveBottleGame(room, socketId) {
     if (humanCount === 0) {
       clearBottleGameTimers(game);
       bottleGames.delete(room);
+      broadcastToRoom(room, 'bottle_state', {
+        players: [],
+        state: 'waiting',
+        turnIndex: 0,
+        spinnerId: null,
+        targetId: null,
+        choices: {}
+      });
       return;
     }
 
@@ -859,6 +868,18 @@ io.on('connection', (socket) => {
       if (color !== undefined) user.color = color;
       if (avatarFrame !== undefined) user.avatarFrame = avatarFrame;
       broadcastToRoom(user.room, 'update_users', getRoomUsers(user.room));
+
+      // Обновляем атрибуты игрока в игре Бутылочка, если он за столом
+      const game = bottleGames.get(user.room);
+      if (game) {
+        const p = game.players.find(pl => pl.socketId === socket.id);
+        if (p) {
+          if (badge !== undefined) p.badge = badge;
+          if (color !== undefined) p.color = color;
+          if (avatarFrame !== undefined) p.avatarFrame = avatarFrame;
+          broadcastBottleState(user.room);
+        }
+      }
     } catch(err) {
       console.error('Ошибка equip_attribute:', err);
     }
