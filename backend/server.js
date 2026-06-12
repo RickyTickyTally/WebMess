@@ -34,7 +34,8 @@ function getRoomUsers(room) {
       avatar: u.avatar || null,
       telegram: u.telegram || null,
       discord: u.discord || null,
-      coins: u.coins || 0
+      coins: u.coins || 0,
+      avatarFrame: u.avatarFrame || null
     }));
 }
 
@@ -49,6 +50,9 @@ const roomModes = new Map();
 
 // Хранилище игр в Бутылочку (room -> game state)
 const bottleGames = new Map();
+
+// Хранилище заказанной музыки в комнатах (room -> active music state)
+const roomMusic = new Map();
 
 // Хранилище приватизированных комнат (room -> { owner, theme })
 const ROOMS_FILE = path.join(__dirname, 'rooms.json');
@@ -487,7 +491,7 @@ io.on('connection', (socket) => {
 
     try {
       const decryptedStr = decryptPayload(encryptedPayload, key);
-      const { url, nickname, isPremium, badge, color, isInvisible, avatar, telegram, discord, coins } = JSON.parse(decryptedStr);
+      const { url, nickname, isPremium, badge, color, isInvisible, avatar, telegram, discord, coins, avatarFrame } = JSON.parse(decryptedStr);
 
       const room = url.split('?')[0].split('#')[0].replace(/\/$/, '');
       
@@ -523,7 +527,8 @@ io.on('connection', (socket) => {
         avatar: avatar || '',
         telegram: telegram || '',
         discord: discord || '',
-        coins: coins || 0
+        coins: coins || 0,
+        avatarFrame: avatarFrame || ''
       });
       socket.join(room);
 
@@ -553,6 +558,20 @@ io.on('connection', (socket) => {
           choices: choicesState
         }), key);
         socket.emit('bottle_state', encryptedBottleState);
+      }
+
+      // Отправляем текущую музыку, если она играет
+      if (roomMusic.has(room)) {
+        const music = roomMusic.get(room);
+        if (music.expiresAt > Date.now()) {
+          const encryptedMusic = encryptPayload(JSON.stringify({
+            videoId: music.videoId,
+            title: music.title,
+            orderedBy: music.orderedBy,
+            expiresAt: music.expiresAt
+          }), key);
+          socket.emit('room_music_update', encryptedMusic);
+        }
       }
       
       // Отправляем настройки приватизированной комнаты (владелец, тема)
@@ -607,7 +626,8 @@ io.on('connection', (socket) => {
         color: user.color || null,
         avatar: user.avatar || null,
         telegram: user.telegram || null,
-        discord: user.discord || null
+        discord: user.discord || null,
+        avatarFrame: user.avatarFrame || null
       };
 
       console.log(`[MSG] Сообщение от ${user.nickname} в комнате ${user.room}`);
@@ -825,6 +845,91 @@ io.on('connection', (socket) => {
       broadcastToRoom(user.room, 'update_users', getRoomUsers(user.room));
     } catch (err) {
       console.error('Ошибка clicker_update:', err);
+    }
+  });
+
+  socket.on('equip_attribute', (encryptedPayload) => {
+    const key = socketKeys.get(socket.id);
+    const user = users.get(socket.id);
+    if (!key || !user) return;
+    try {
+      const decryptedStr = decryptPayload(encryptedPayload, key);
+      const { badge, color, avatarFrame } = JSON.parse(decryptedStr);
+      if (badge !== undefined) user.badge = badge;
+      if (color !== undefined) user.color = color;
+      if (avatarFrame !== undefined) user.avatarFrame = avatarFrame;
+      broadcastToRoom(user.room, 'update_users', getRoomUsers(user.room));
+    } catch(err) {
+      console.error('Ошибка equip_attribute:', err);
+    }
+  });
+
+  socket.on('order_music', (encryptedPayload) => {
+    const key = socketKeys.get(socket.id);
+    const user = users.get(socket.id);
+    if (!key || !user) return;
+    try {
+      const decryptedStr = decryptPayload(encryptedPayload, key);
+      const { videoId, title, cost } = JSON.parse(decryptedStr);
+
+      if (user.coins < cost) {
+        return; // Недостаточно монет
+      }
+      user.coins -= cost;
+
+      if (roomMusic.has(user.room)) {
+        const oldMusic = roomMusic.get(user.room);
+        if (oldMusic.timerId) clearTimeout(oldMusic.timerId);
+      }
+
+      const trackLength = 240000; // 4 минуты в мс
+      const expiresAt = Date.now() + trackLength;
+
+      const timerId = setTimeout(() => {
+        roomMusic.delete(user.room);
+        broadcastToRoom(user.room, 'room_music_update', { videoId: null, title: null, orderedBy: null });
+      }, trackLength);
+
+      const musicState = {
+        videoId,
+        title,
+        orderedBy: user.nickname,
+        expiresAt,
+        timerId
+      };
+      roomMusic.set(user.room, musicState);
+
+      broadcastToRoom(user.room, 'update_users', getRoomUsers(user.room));
+
+      broadcastToRoom(user.room, 'room_music_update', {
+        videoId,
+        title,
+        orderedBy: user.nickname,
+        expiresAt
+      });
+
+      const systemMessage = {
+        author: '🎵 Музыка',
+        text: `🎵 ${user.nickname} заказал трек: "${title}"`,
+        time: new Date().toISOString(),
+        badge: '🎵',
+        color: '#ffc107',
+        avatar: '',
+        telegram: '',
+        discord: ''
+      };
+
+      if (!roomHistories.has(user.room)) {
+        roomHistories.set(user.room, []);
+      }
+      const history = roomHistories.get(user.room);
+      history.push(systemMessage);
+      if (history.length > 50) history.shift();
+
+      broadcastToRoom(user.room, 'receive_message', systemMessage);
+
+    } catch (err) {
+      console.error('Ошибка order_music:', err);
     }
   });
 

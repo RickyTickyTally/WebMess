@@ -688,6 +688,28 @@
       color: var(--tab-active-text) !important;
       border-color: var(--accent-color) !important;
     }
+    
+    /* Стили для рамок аватарок */
+    .frame-gold {
+      border: 2px solid #ffd700;
+      box-shadow: 0 0 6px #ffd700;
+    }
+    .frame-neon {
+      border: 2px solid #ff007f;
+      box-shadow: 0 0 8px #ff007f;
+    }
+    .frame-rainbow {
+      border: 2.5px solid transparent;
+      background-image: linear-gradient(var(--input-bg), var(--input-bg)), linear-gradient(90deg, #ff0000, #ffff00, #00ff00, #00ffff, #0000ff, #ff00ff);
+      background-origin: border-box;
+      background-clip: content-box, border-box;
+      box-shadow: 0 0 8px rgba(255, 0, 255, 0.5);
+      animation: rainbow-glow 3s linear infinite;
+    }
+    @keyframes rainbow-glow {
+      0% { filter: hue-rotate(0deg); }
+      100% { filter: hue-rotate(360deg); }
+    }
   </style>
   <!-- Подключение локального Socket.io клиента -->
   <script src="socket.io.min.js"></script>
@@ -952,6 +974,7 @@
           <button id="game-tab-clicker" class="game-sub-tab" style="padding: 4px 8px; font-size: 11px; border-radius: 4px; font-weight: bold; cursor: pointer; border: 1px solid var(--border-color); background: transparent; color: var(--text-color); outline: none;">Шахта (Clicker)</button>
           <button id="game-tab-relax" class="game-sub-tab" style="padding: 4px 8px; font-size: 11px; border-radius: 4px; font-weight: bold; cursor: pointer; border: 1px solid var(--border-color); background: transparent; color: var(--text-color); outline: none;">Релакс (ASMR)</button>
           <button id="game-tab-bottle" class="game-sub-tab" style="padding: 4px 8px; font-size: 11px; border-radius: 4px; font-weight: bold; cursor: pointer; border: 1px solid var(--border-color); background: transparent; color: var(--text-color); outline: none;">Бутылочка</button>
+          <button id="game-tab-shop" class="game-sub-tab" style="padding: 4px 8px; font-size: 11px; border-radius: 4px; font-weight: bold; cursor: pointer; border: 1px solid var(--border-color); background: transparent; color: var(--text-color); outline: none;">Магазин 🛍️</button>
         </div>
       </div>
       
@@ -1079,6 +1102,24 @@
           </div>
         </div>
 
+        <!-- Блок заказа музыки -->
+        <div style="background: var(--sidebar-bg); border: 1px solid var(--border-color); border-radius: 8px; padding: 10px; box-sizing: border-box; display: flex; flex-direction: column; gap: 6px;">
+          <div style="font-size: 11px; font-weight: bold; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; display: flex; justify-content: space-between;">
+            <span>🎵 Заказ музыки в комнату</span>
+            <span style="font-weight: bold; color: #ffc107;">50 🪙 / трек</span>
+          </div>
+          
+          <div id="relax-music-status" style="font-size: 11px; font-weight: bold; color: var(--text-color); display: none; background: var(--input-bg); padding: 6px 10px; border-radius: 6px; border: 1.5px solid var(--accent-color);">
+            Сейчас играет: <span id="relax-music-title" style="color: var(--accent-color);">...</span> <br>
+            <span style="font-size: 9px; color: var(--text-muted); font-weight: normal;">Заказал: <span id="relax-music-by" style="font-weight: bold;">...</span></span>
+          </div>
+
+          <div style="display: flex; gap: 6px;">
+            <input type="text" id="music-url-input" placeholder="YouTube ссылка или ID трека" style="flex: 1; padding: 6px 10px; font-size: 12px; border-radius: 6px; border: 1px solid var(--border-color); background: var(--input-bg); color: var(--text-color); outline: none;">
+            <button id="music-order-btn" style="padding: 6px 12px; font-size: 11px; font-weight: bold; background: var(--button-bg); color: var(--button-text); border: none; border-radius: 6px; cursor: pointer; transition: background-color 0.2s;">Заказать</button>
+          </div>
+        </div>
+
         <div style="flex: 1; display: flex; align-items: center; justify-content: center; position: relative;">
           <!-- Ифрейм Плеера -->
           <iframe id="relax-video-player" width="100%" height="220" src="" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen style="border-radius: 8px; border: 1px solid var(--border-color); background: #000; display: none;"></iframe>
@@ -1141,12 +1182,126 @@
           <button id="bottle-spin-btn" style="flex: 1.2; padding: 8px; border-radius: 6px; border: none; font-size: 11px; cursor: pointer; font-weight: bold; background: #e91e63; color: white; display: none;">Крутить бутылочку 🍾</button>
         </div>
       </div>
+
+      <!-- Панель Магазина -->
+      <div id="games-panel-shop" style="display: none; flex: 1; flex-direction: column; padding: 12px; gap: 12px; overflow-y: auto; box-sizing: border-box; height: 100%;">
+        <!-- Баланс монет -->
+        <div style="background: var(--sidebar-bg); border: 1px solid var(--border-color); border-radius: 10px; padding: 12px; text-align: center; display: flex; flex-direction: column; gap: 4px; box-shadow: 0 4px 10px rgba(0,0,0,0.1);">
+          <span style="font-size: 11px; text-transform: uppercase; letter-spacing: 1px; color: var(--text-muted); font-weight: bold;">Ваши монеты</span>
+          <div style="font-size: 24px; font-weight: 900; color: #ffc107; display: flex; align-items: center; justify-content: center; gap: 6px;">
+            <span>🪙</span>
+            <span id="shop-coins-display">0</span>
+          </div>
+        </div>
+
+        <!-- Раздел Атрибутов -->
+        <div style="background: var(--sidebar-bg); border: 1px solid var(--border-color); border-radius: 8px; padding: 10px; display: flex; flex-direction: column; gap: 8px;">
+          <div style="font-size: 11px; font-weight: bold; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 2px;">Кастомизация профиля</div>
+          
+          <!-- Цвета никнейма -->
+          <div style="font-weight: bold; font-size: 11px; color: var(--text-color); margin-top: 4px;">🎨 Цвета никнейма:</div>
+          <div style="display: flex; flex-direction: column; gap: 6px;">
+            <!-- Зеленый неон -->
+            <div style="display: flex; justify-content: space-between; align-items: center; background: var(--input-bg); border: 1px solid var(--border-color); border-radius: 6px; padding: 6px 10px;">
+              <span style="font-size: 12px; font-weight: bold; color: #39ff14;">Неоновый зеленый</span>
+              <button class="shop-item-btn" data-item-id="color_neon_green" data-price="150" style="padding: 5px 10px; font-size: 10px; font-weight: bold; background: var(--accent-color); color: var(--tab-active-text); border: none; border-radius: 4px; cursor: pointer;">
+                150 🪙
+              </button>
+            </div>
+            <!-- Золотой -->
+            <div style="display: flex; justify-content: space-between; align-items: center; background: var(--input-bg); border: 1px solid var(--border-color); border-radius: 6px; padding: 6px 10px;">
+              <span style="font-size: 12px; font-weight: bold; color: #ffd700;">Золотой никнейм</span>
+              <button class="shop-item-btn" data-item-id="color_gold" data-price="250" style="padding: 5px 10px; font-size: 10px; font-weight: bold; background: var(--accent-color); color: var(--tab-active-text); border: none; border-radius: 4px; cursor: pointer;">
+                250 🪙
+              </button>
+            </div>
+            <!-- Неоновый розовый -->
+            <div style="display: flex; justify-content: space-between; align-items: center; background: var(--input-bg); border: 1px solid var(--border-color); border-radius: 6px; padding: 6px 10px;">
+              <span style="font-size: 12px; font-weight: bold; color: #ff6ec7;">Розовый неон</span>
+              <button class="shop-item-btn" data-item-id="color_neon_pink" data-price="400" style="padding: 5px 10px; font-size: 10px; font-weight: bold; background: var(--accent-color); color: var(--tab-active-text); border: none; border-radius: 4px; cursor: pointer;">
+                400 🪙
+              </button>
+            </div>
+          </div>
+
+          <!-- Бейджи -->
+          <div style="font-weight: bold; font-size: 11px; color: var(--text-color); margin-top: 6px;">💎 Специальные бейджи:</div>
+          <div style="display: flex; flex-direction: column; gap: 6px;">
+            <!-- Алмаз -->
+            <div style="display: flex; justify-content: space-between; align-items: center; background: var(--input-bg); border: 1px solid var(--border-color); border-radius: 6px; padding: 6px 10px;">
+              <span style="font-size: 12px; font-weight: bold;">💎 Алмазный бейдж</span>
+              <button class="shop-item-btn" data-item-id="badge_diamond" data-price="100" style="padding: 5px 10px; font-size: 10px; font-weight: bold; background: var(--accent-color); color: var(--tab-active-text); border: none; border-radius: 4px; cursor: pointer;">
+                100 🪙
+              </button>
+            </div>
+            <!-- Единорог -->
+            <div style="display: flex; justify-content: space-between; align-items: center; background: var(--input-bg); border: 1px solid var(--border-color); border-radius: 6px; padding: 6px 10px;">
+              <span style="font-size: 12px; font-weight: bold;">🦄 Единорожий бейдж</span>
+              <button class="shop-item-btn" data-item-id="badge_unicorn" data-price="200" style="padding: 5px 10px; font-size: 10px; font-weight: bold; background: var(--accent-color); color: var(--tab-active-text); border: none; border-radius: 4px; cursor: pointer;">
+                200 🪙
+              </button>
+            </div>
+            <!-- Звезда -->
+            <div style="display: flex; justify-content: space-between; align-items: center; background: var(--input-bg); border: 1px solid var(--border-color); border-radius: 6px; padding: 6px 10px;">
+              <span style="font-size: 12px; font-weight: bold;">🌟 Звездный бейдж</span>
+              <button class="shop-item-btn" data-item-id="badge_star" data-price="300" style="padding: 5px 10px; font-size: 10px; font-weight: bold; background: var(--accent-color); color: var(--tab-active-text); border: none; border-radius: 4px; cursor: pointer;">
+                300 🪙
+              </button>
+            </div>
+          </div>
+
+          <!-- Рамки аватара -->
+          <div style="font-weight: bold; font-size: 11px; color: var(--text-color); margin-top: 6px;">🖼️ Рамки аватарок:</div>
+          <div style="display: flex; flex-direction: column; gap: 6px;">
+            <!-- Золотая рамка -->
+            <div style="display: flex; justify-content: space-between; align-items: center; background: var(--input-bg); border: 1px solid var(--border-color); border-radius: 6px; padding: 6px 10px;">
+              <span style="font-size: 12px; font-weight: bold; color: #ffd700;">🟡 Золотая рамка</span>
+              <button class="shop-item-btn" data-item-id="frame_gold" data-price="500" style="padding: 5px 10px; font-size: 10px; font-weight: bold; background: var(--accent-color); color: var(--tab-active-text); border: none; border-radius: 4px; cursor: pointer;">
+                500 🪙
+              </button>
+            </div>
+            <!-- Неоновая розовая -->
+            <div style="display: flex; justify-content: space-between; align-items: center; background: var(--input-bg); border: 1px solid var(--border-color); border-radius: 6px; padding: 6px 10px;">
+              <span style="font-size: 12px; font-weight: bold; color: #ff007f;">🔴 Неоновая рамка</span>
+              <button class="shop-item-btn" data-item-id="frame_neon" data-price="800" style="padding: 5px 10px; font-size: 10px; font-weight: bold; background: var(--accent-color); color: var(--tab-active-text); border: none; border-radius: 4px; cursor: pointer;">
+                800 🪙
+              </button>
+            </div>
+            <!-- Радужная -->
+            <div style="display: flex; justify-content: space-between; align-items: center; background: var(--input-bg); border: 1px solid var(--border-color); border-radius: 6px; padding: 6px 10px;">
+              <span style="font-size: 12px; font-weight: bold; background: linear-gradient(90deg, #ff0000, #ffff00, #00ff00, #00ffff, #0000ff, #ff00ff); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">🌈 Радужная рамка</span>
+              <button class="shop-item-btn" data-item-id="frame_rainbow" data-price="1500" style="padding: 5px 10px; font-size: 10px; font-weight: bold; background: var(--accent-color); color: var(--tab-active-text); border: none; border-radius: 4px; cursor: pointer;">
+                1500 🪙
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Раздел Заданий -->
+        <div style="background: var(--sidebar-bg); border: 1px solid var(--border-color); border-radius: 8px; padding: 10px; display: flex; flex-direction: column; gap: 6px;">
+          <div style="font-size: 11px; font-weight: bold; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 2px;">🏆 Задания чата</div>
+          
+          <div style="background: var(--input-bg); border: 1px solid var(--border-color); border-radius: 6px; padding: 6px 10px; font-size: 12px; display: flex; justify-content: space-between; align-items: center;">
+            <div style="display: flex; flex-direction: column; gap: 2px;">
+              <span style="font-weight: bold;">Бейдж «Профи» 🔥</span>
+              <span style="font-size: 9px; color: var(--text-muted);">Отправьте 10 сообщений в чат</span>
+            </div>
+            <span id="shop-task-pro" style="font-size: 11px; font-weight: bold; color: var(--text-muted);">0 / 10</span>
+          </div>
+
+          <div style="background: var(--input-bg); border: 1px solid var(--border-color); border-radius: 6px; padding: 6px 10px; font-size: 12px; display: flex; justify-content: space-between; align-items: center;">
+            <div style="display: flex; flex-direction: column; gap: 2px;">
+              <span style="font-weight: bold;">Бейдж «Молния» ⚡</span>
+              <span style="font-size: 9px; color: var(--text-muted);">Отправьте 50 сообщений в чат</span>
+            </div>
+            <span id="shop-task-lightning" style="font-size: 11px; font-weight: bold; color: var(--text-muted);">0 / 50</span>
+          </div>
+        </div>
+      </div>
     </div>
 
     <!-- 5. Экран управления комнатой (UGC) -->
     <div id="room-settings-screen" class="screen" style="justify-content: flex-start; padding: 20px 24px; text-align: center; overflow-y: auto;">
-      <h3 style="margin: 0 0 16px 0; font-size: 18px; color: var(--text-color);">Управление комнатой</h3>
-      
       <div id="room-unowned-view" style="display: none; flex-direction: column; gap: 16px;">
         <p style="font-size: 14px; color: var(--text-muted);">Эта комната (URL) пока никем не занята. Вы можете захватить её и стать владельцем!</p>
         <button id="claim-room-btn" style="padding: 10px; background-color: var(--button-bg); color: var(--button-text); border: none; border-radius: 6px; cursor: pointer; font-weight: bold;">Захватить комнату</button>

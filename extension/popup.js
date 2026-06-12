@@ -79,7 +79,23 @@ const bottleSpinBtn = document.getElementById('bottle-spin-btn');
 
 let bottleChoiceTimer = null;
 
+// Элементы Магазина и Заказа Музыки
+const gameTabShop = document.getElementById('game-tab-shop');
+const gamesPanelShop = document.getElementById('games-panel-shop');
+const shopCoinsDisplay = document.getElementById('shop-coins-display');
+const shopTaskPro = document.getElementById('shop-task-pro');
+const shopTaskLightning = document.getElementById('shop-task-lightning');
+
+const relaxMusicStatus = document.getElementById('relax-music-status');
+const relaxMusicTitle = document.getElementById('relax-music-title');
+const relaxMusicBy = document.getElementById('relax-music-by');
+const musicUrlInput = document.getElementById('music-url-input');
+const musicOrderBtn = document.getElementById('music-order-btn');
+
 let isGameActive = false;
+let roomMusicTimer = null;
+let isRoomMusicPlaying = false;
+let roomMusicVideoId = null;
 let currentGameMode = 'ffa';
 let localPlayer = {
   id: '',
@@ -345,13 +361,14 @@ function appendMessageToUi(msg, autoScroll = true) {
   msgRow.className = `message-row ${isSelf ? 'self' : 'other'}`;
   
   // Аватарка отправителя сообщения снаружи пузыря
+  const frameClass = msg.avatarFrame ? `frame-${msg.avatarFrame}` : '';
   let avatarOutsideHtml = '';
   if (avatar) {
-    avatarOutsideHtml = `<img src="${avatar}" class="message-avatar-outside" title="${author}">`;
+    avatarOutsideHtml = `<img src="${avatar}" class="message-avatar-outside ${frameClass}" title="${author}">`;
   } else {
     const fallbackChar = badge || author.charAt(0).toUpperCase();
     const bgStyle = color ? `background-color: ${color};` : '';
-    avatarOutsideHtml = `<div class="message-avatar-outside" style="${bgStyle}" title="${author}">${fallbackChar}</div>`;
+    avatarOutsideHtml = `<div class="message-avatar-outside ${frameClass}" style="${bgStyle}" title="${author}">${fallbackChar}</div>`;
   }
 
   const date = new Date(time);
@@ -435,10 +452,14 @@ function connectToChat(url, nickname) {
   });
 
   // Запрашиваем информацию о Premium настройках и профиле из хранилища
-  chrome.storage.local.get(['isPremium', 'premiumBadge', 'premiumColor', 'isInvisible', 'avatar', 'telegram', 'discord'], (storageData) => {
+  chrome.storage.local.get([
+    'isPremium', 'premiumBadge', 'premiumColor', 'isInvisible', 'avatar', 'telegram', 'discord',
+    'activeAvatarFrame', 'activeColor', 'activeBadge'
+  ], (storageData) => {
     const isPremium = storageData.isPremium || false;
-    const badge = isPremium ? (storageData.premiumBadge || '') : '';
-    const color = isPremium ? (storageData.premiumColor || '') : '';
+    const badge = (isPremium && storageData.premiumBadge) ? storageData.premiumBadge : (storageData.activeBadge || '');
+    const color = (isPremium && storageData.premiumColor) ? storageData.premiumColor : (storageData.activeColor || '');
+    const avatarFrame = storageData.activeAvatarFrame || '';
     const isInvisible = isPremium ? (storageData.isInvisible || false) : false;
     const avatar = storageData.avatar || '';
     const telegram = storageData.telegram || '';
@@ -521,7 +542,8 @@ function connectToChat(url, nickname) {
                 avatar,
                 telegram,
                 discord,
-                coins: savedCoins
+                coins: savedCoins,
+                avatarFrame
               }), aesKey);
               socket.emit('join_room', joinPayload);
               
@@ -562,9 +584,13 @@ function connectToChat(url, nickname) {
           const badge = isObj ? u.badge : null;
           const color = isObj ? u.color : null;
           const avatar = isObj ? u.avatar : null;
+          const avatarFrame = isObj ? u.avatarFrame : null;
 
           const avatarDiv = document.createElement('div');
           avatarDiv.className = 'user-avatar-mini';
+          if (avatarFrame) {
+            avatarDiv.classList.add('frame-' + avatarFrame);
+          }
           
           if (avatar) {
             const img = document.createElement('img');
@@ -609,10 +635,15 @@ function connectToChat(url, nickname) {
           userRow.style.padding = '8px 0';
           userRow.style.borderBottom = '1px solid #f1f3f5';
 
+          const avatarFrame = isObj ? u.avatarFrame : null;
           const avatarDiv = document.createElement('div');
           avatarDiv.className = 'user-avatar-mini';
-          avatarDiv.style.border = 'none';
-          avatarDiv.style.boxShadow = 'none';
+          if (avatarFrame) {
+            avatarDiv.classList.add('frame-' + avatarFrame);
+          } else {
+            avatarDiv.style.border = 'none';
+            avatarDiv.style.boxShadow = 'none';
+          }
           
           if (avatar) {
             const img = document.createElement('img');
@@ -953,6 +984,17 @@ function connectToChat(url, nickname) {
         console.warn('Ошибка расшифровки bottle_kiss_result:', err.message || err);
       }
     });
+
+    socket.on('room_music_update', async (encryptedPayload) => {
+      try {
+        if (!aesKey) return;
+        const decryptedStr = await decryptText(encryptedPayload, aesKey);
+        const music = JSON.parse(decryptedStr);
+        handleRoomMusicUpdate(music);
+      } catch (err) {
+        console.warn('Ошибка расшифровки room_music_update:', err.message || err);
+      }
+    });
   });
 }
 
@@ -1016,7 +1058,7 @@ refreshChatBtn.addEventListener('click', () => {
 profileBtn.addEventListener('click', () => {
   chrome.storage.local.get([
     'nickname', 'isPremium', 'premiumBadge', 'premiumColor', 'isInvisible',
-    'avatar', 'telegram', 'discord', 'phone', 'bio', 'birthday', 'theme', 'messagesSentCount'
+    'avatar', 'telegram', 'discord', 'phone', 'bio', 'birthday', 'theme', 'messagesSentCount', 'activeBadge'
   ], (result) => {
     profileNicknameInput.value = result.nickname || '';
     profileNicknameTitle.textContent = result.nickname || 'Пользователь';
@@ -1055,6 +1097,8 @@ profileBtn.addEventListener('click', () => {
     } else {
       badgeLightning.classList.remove('unlocked');
     }
+
+    updateBadgeDrawerSelection(result.activeBadge || '');
     
     // Theme
     const theme = result.theme || 'white';
@@ -2537,114 +2581,67 @@ function stopRelaxVideo() {
   });
 }
 
-if (gameTabPvp && gameTabClicker && gameTabRelax && gameTabBottle) {
+function selectSubTab(activeTab, activePanel) {
+  const subTabs = [gameTabPvp, gameTabClicker, gameTabRelax, gameTabBottle, gameTabShop];
+  const panels = [gamesPanelPvp, gamesPanelClicker, gamesPanelRelax, gamesPanelBottle, gamesPanelShop];
+  
+  subTabs.forEach(tab => {
+    if (tab) {
+      if (tab === activeTab) {
+        tab.classList.add('active');
+        tab.style.background = 'var(--tab-active-bg)';
+        tab.style.color = 'var(--tab-active-text)';
+      } else {
+        tab.classList.remove('active');
+        tab.style.background = 'transparent';
+        tab.style.color = 'var(--text-color)';
+      }
+    }
+  });
+
+  panels.forEach(panel => {
+    if (panel) {
+      panel.style.display = (panel === activePanel) ? 'flex' : 'none';
+    }
+  });
+}
+
+if (gameTabPvp && gameTabClicker && gameTabRelax && gameTabBottle && gameTabShop) {
   gameTabPvp.addEventListener('click', () => {
     stopRelaxVideo();
     leaveBottleGameClient();
-
-    gameTabPvp.classList.add('active');
-    gameTabPvp.style.background = 'var(--tab-active-bg)';
-    gameTabPvp.style.color = 'var(--tab-active-text)';
-    
-    gameTabClicker.classList.remove('active');
-    gameTabClicker.style.background = 'transparent';
-    gameTabClicker.style.color = 'var(--text-color)';
-
-    gameTabRelax.classList.remove('active');
-    gameTabRelax.style.background = 'transparent';
-    gameTabRelax.style.color = 'var(--text-color)';
-
-    gameTabBottle.classList.remove('active');
-    gameTabBottle.style.background = 'transparent';
-    gameTabBottle.style.color = 'var(--text-color)';
-    
-    if (gamesPanelPvp) gamesPanelPvp.style.display = 'flex';
-    if (gamesPanelClicker) gamesPanelClicker.style.display = 'none';
-    if (gamesPanelRelax) gamesPanelRelax.style.display = 'none';
-    if (gamesPanelBottle) gamesPanelBottle.style.display = 'none';
+    selectSubTab(gameTabPvp, gamesPanelPvp);
   });
   
   gameTabClicker.addEventListener('click', () => {
     stopRelaxVideo();
     leaveBottleGameClient();
-
-    gameTabClicker.classList.add('active');
-    gameTabClicker.style.background = 'var(--tab-active-bg)';
-    gameTabClicker.style.color = 'var(--tab-active-text)';
-    
-    gameTabPvp.classList.remove('active');
-    gameTabPvp.style.background = 'transparent';
-    gameTabPvp.style.color = 'var(--text-color)';
-
-    gameTabRelax.classList.remove('active');
-    gameTabRelax.style.background = 'transparent';
-    gameTabRelax.style.color = 'var(--text-color)';
-
-    gameTabBottle.classList.remove('active');
-    gameTabBottle.style.background = 'transparent';
-    gameTabBottle.style.color = 'var(--text-color)';
-    
-    if (gamesPanelClicker) gamesPanelClicker.style.display = 'flex';
-    if (gamesPanelPvp) gamesPanelPvp.style.display = 'none';
-    if (gamesPanelRelax) gamesPanelRelax.style.display = 'none';
-    if (gamesPanelBottle) gamesPanelBottle.style.display = 'none';
-    
+    selectSubTab(gameTabClicker, gamesPanelClicker);
     renderClickerLeaderboard(currentUsersInRoom);
   });
 
   gameTabRelax.addEventListener('click', () => {
     leaveBottleGameClient();
-
-    gameTabRelax.classList.add('active');
-    gameTabRelax.style.background = 'var(--tab-active-bg)';
-    gameTabRelax.style.color = 'var(--tab-active-text)';
-    
-    gameTabPvp.classList.remove('active');
-    gameTabPvp.style.background = 'transparent';
-    gameTabPvp.style.color = 'var(--text-color)';
-
-    gameTabClicker.classList.remove('active');
-    gameTabClicker.style.background = 'transparent';
-    gameTabClicker.style.color = 'var(--text-color)';
-
-    gameTabBottle.classList.remove('active');
-    gameTabBottle.style.background = 'transparent';
-    gameTabBottle.style.color = 'var(--text-color)';
-    
-    if (gamesPanelRelax) gamesPanelRelax.style.display = 'flex';
-    if (gamesPanelPvp) gamesPanelPvp.style.display = 'none';
-    if (gamesPanelClicker) gamesPanelClicker.style.display = 'none';
-    if (gamesPanelBottle) gamesPanelBottle.style.display = 'none';
+    selectSubTab(gameTabRelax, gamesPanelRelax);
+    if (roomMusicVideoId) {
+      playRoomMusic(roomMusicVideoId);
+    }
   });
 
   gameTabBottle.addEventListener('click', () => {
     stopRelaxVideo();
     stopGame();
-
-    gameTabBottle.classList.add('active');
-    gameTabBottle.style.background = 'var(--tab-active-bg)';
-    gameTabBottle.style.color = 'var(--tab-active-text)';
-    
-    gameTabPvp.classList.remove('active');
-    gameTabPvp.style.background = 'transparent';
-    gameTabPvp.style.color = 'var(--text-color)';
-
-    gameTabClicker.classList.remove('active');
-    gameTabClicker.style.background = 'transparent';
-    gameTabClicker.style.color = 'var(--text-color)';
-
-    gameTabRelax.classList.remove('active');
-    gameTabRelax.style.background = 'transparent';
-    gameTabRelax.style.color = 'var(--text-color)';
-    
-    if (gamesPanelBottle) gamesPanelBottle.style.display = 'flex';
-    if (gamesPanelPvp) gamesPanelPvp.style.display = 'none';
-    if (gamesPanelClicker) gamesPanelClicker.style.display = 'none';
-    if (gamesPanelRelax) gamesPanelRelax.style.display = 'none';
-    
+    selectSubTab(gameTabBottle, gamesPanelBottle);
     if (currentBottleGameState) {
       updateBottleUi(currentBottleGameState);
     }
+  });
+
+  gameTabShop.addEventListener('click', () => {
+    stopRelaxVideo();
+    leaveBottleGameClient();
+    selectSubTab(gameTabShop, gamesPanelShop);
+    updateShopUi();
   });
 }
 
@@ -2750,6 +2747,10 @@ function renderBottlePlayers(players, spinnerId, targetId, turnIndex) {
     playerDiv.style.boxShadow = '0 2px 6px rgba(0,0,0,0.15)';
     playerDiv.style.pointerEvents = 'auto';
     playerDiv.style.transition = 'all 0.3s ease';
+
+    if (player.avatarFrame) {
+      playerDiv.classList.add('frame-' + player.avatarFrame);
+    }
 
     if (player.socketId === spinnerId) {
       playerDiv.style.borderColor = '#e91e63';
@@ -2997,4 +2998,346 @@ if (bottleChoiceNoBtn) {
       }
     }
   });
+}
+
+// --- МАГАЗИН И МУЗЫКАЛЬНЫЕ ФУНКЦИИ ---
+
+function updateShopUi() {
+  chrome.storage.local.get([
+    'clickerCoins', 'purchasedAttributes',
+    'activeAvatarFrame', 'activeColor', 'activeBadge',
+    'messagesSentCount'
+  ], (res) => {
+    const coins = res.clickerCoins || 0;
+    const purchased = res.purchasedAttributes || [];
+    const activeFrame = res.activeAvatarFrame || '';
+    const activeColor = res.activeColor || '';
+    const activeBadge = res.activeBadge || '';
+    const messagesSent = res.messagesSentCount || 0;
+
+    // Обновляем баланс монет
+    const shopCoinsDisplay = document.getElementById('shop-coins-display');
+    if (shopCoinsDisplay) shopCoinsDisplay.textContent = Math.floor(coins);
+
+    // Обновляем прогресс заданий
+    const shopTaskPro = document.getElementById('shop-task-pro');
+    if (shopTaskPro) shopTaskPro.textContent = `${Math.min(messagesSent, 10)} / 10`;
+    const shopTaskLightning = document.getElementById('shop-task-lightning');
+    if (shopTaskLightning) shopTaskLightning.textContent = `${Math.min(messagesSent, 50)} / 50`;
+
+    // Обновляем кнопки товаров
+    document.querySelectorAll('.shop-item-btn').forEach(btn => {
+      const itemId = btn.getAttribute('data-item-id');
+      const price = parseInt(btn.getAttribute('data-price'), 10);
+      const isPurchased = purchased.includes(itemId);
+
+      // Проверяем, активен ли товар
+      let isActive = false;
+      if (itemId.startsWith('color_')) {
+        const val = getShopItemValue(itemId);
+        isActive = (activeColor === val);
+      } else if (itemId.startsWith('badge_')) {
+        const val = getShopItemValue(itemId);
+        isActive = (activeBadge === val);
+      } else if (itemId.startsWith('frame_')) {
+        const val = getShopItemValue(itemId);
+        isActive = (activeFrame === val);
+      }
+
+      if (isActive) {
+        btn.textContent = 'Активно';
+        btn.style.background = '#198754'; // Зеленый
+        btn.style.color = '#fff';
+      } else if (isPurchased) {
+        btn.textContent = 'Применить';
+        btn.style.background = '#0d6efd'; // Синий
+        btn.style.color = '#fff';
+      } else {
+        btn.textContent = `${price} 🪙`;
+        btn.style.background = 'var(--accent-color)';
+        btn.style.color = 'var(--tab-active-text)';
+      }
+    });
+  });
+}
+
+function getShopItemValue(itemId) {
+  switch (itemId) {
+    case 'color_neon_green': return '#39ff14';
+    case 'color_gold': return '#ffd700';
+    case 'color_neon_pink': return '#ff6ec7';
+    case 'badge_diamond': return '💎';
+    case 'badge_unicorn': return '🦄';
+    case 'badge_star': return '🌟';
+    case 'frame_gold': return 'gold';
+    case 'frame_neon': return 'neon';
+    case 'frame_rainbow': return 'rainbow';
+    default: return '';
+  }
+}
+
+function updateBadgeDrawerSelection(activeBadge) {
+  document.querySelectorAll('.profile-badge-item').forEach(item => {
+    item.style.outline = 'none';
+    item.style.boxShadow = 'none';
+  });
+
+  let activeId = '';
+  if (activeBadge === '👑') activeId = 'badge-creator';
+  else if (activeBadge === '🔥') activeId = 'badge-pro';
+  else if (activeBadge === '⚡') activeId = 'badge-lightning';
+
+  if (activeId) {
+    const activeItem = document.getElementById(activeId);
+    if (activeItem && activeItem.classList.contains('unlocked')) {
+      activeItem.style.outline = '2px solid var(--accent-color)';
+      activeItem.style.boxShadow = '0 0 8px var(--accent-color)';
+    }
+  }
+}
+
+// Обработчик покупки/экипировки в магазине
+document.addEventListener('click', async (e) => {
+  const shopBtn = e.target.closest('.shop-item-btn');
+  if (shopBtn) {
+    const itemId = shopBtn.getAttribute('data-item-id');
+    const price = parseInt(shopBtn.getAttribute('data-price'), 10);
+
+    chrome.storage.local.get([
+      'clickerCoins', 'purchasedAttributes',
+      'activeAvatarFrame', 'activeColor', 'activeBadge',
+      'isPremium', 'premiumBadge', 'premiumColor'
+    ], (res) => {
+      let coins = res.clickerCoins || 0;
+      let purchased = res.purchasedAttributes || [];
+      let activeFrame = res.activeAvatarFrame || '';
+      let activeColor = res.activeColor || '';
+      let activeBadge = res.activeBadge || '';
+      const isPremium = res.isPremium || false;
+
+      const isPurchased = purchased.includes(itemId);
+
+      let itemType = '';
+      if (itemId.startsWith('color_')) itemType = 'color';
+      else if (itemId.startsWith('badge_')) itemType = 'badge';
+      else if (itemId.startsWith('frame_')) itemType = 'frame';
+
+      const val = getShopItemValue(itemId);
+
+      if (isPurchased) {
+        if (itemType === 'color') {
+          activeColor = (activeColor === val) ? '' : val;
+        } else if (itemType === 'badge') {
+          activeBadge = (activeBadge === val) ? '' : val;
+        } else if (itemType === 'frame') {
+          activeFrame = (activeFrame === val) ? '' : val;
+        }
+      } else {
+        if (coins < price) {
+          alert('Недостаточно монет кликера! 🪙');
+          return;
+        }
+        coins -= price;
+        purchased.push(itemId);
+
+        if (itemType === 'color') activeColor = val;
+        else if (itemType === 'badge') activeBadge = val;
+        else if (itemType === 'frame') activeFrame = val;
+      }
+
+      chrome.storage.local.set({
+        clickerCoins: Math.floor(coins),
+        purchasedAttributes: purchased,
+        activeColor,
+        activeBadge,
+        activeAvatarFrame: activeFrame
+      }, async () => {
+        clickerCoins = coins;
+        updateClickerUi();
+        updateShopUi();
+
+        if (socket && aesKey) {
+          sendClickerStats();
+          const finalBadge = (isPremium && res.premiumBadge) ? res.premiumBadge : activeBadge;
+          const finalColor = (isPremium && res.premiumColor) ? res.premiumColor : activeColor;
+          
+          try {
+            const payload = await encryptText(JSON.stringify({
+              badge: finalBadge,
+              color: finalColor,
+              avatarFrame: activeFrame
+            }), aesKey);
+            socket.emit('equip_attribute', payload);
+          } catch (err) {
+            console.error('Ошибка отправки equip_attribute:', err);
+          }
+        }
+      });
+    });
+  }
+});
+
+// Обработка клика по значкам в профиле для их экипировки
+const badgesDrawer = document.getElementById('profile-badges-drawer');
+if (badgesDrawer) {
+  badgesDrawer.addEventListener('click', async (e) => {
+    const badgeItem = e.target.closest('.profile-badge-item');
+    if (!badgeItem) return;
+
+    if (!badgeItem.classList.contains('unlocked')) {
+      alert('Этот значок еще не разблокирован! Выполняйте задания чата или активируйте Premium.');
+      return;
+    }
+
+    const badgeId = badgeItem.id;
+    let emoji = '';
+    if (badgeId === 'badge-creator') emoji = '👑';
+    else if (badgeId === 'badge-pro') emoji = '🔥';
+    else if (badgeId === 'badge-lightning') emoji = '⚡';
+
+    chrome.storage.local.get(['activeBadge', 'isPremium', 'premiumBadge', 'premiumColor', 'activeColor', 'activeAvatarFrame'], async (res) => {
+      const isPremium = res.isPremium || false;
+      let activeBadge = res.activeBadge || '';
+
+      activeBadge = (activeBadge === emoji) ? '' : emoji;
+
+      chrome.storage.local.set({ activeBadge }, async () => {
+        updateBadgeDrawerSelection(activeBadge);
+
+        if (socket && aesKey) {
+          const finalBadge = (isPremium && res.premiumBadge) ? res.premiumBadge : activeBadge;
+          const finalColor = (isPremium && res.premiumColor) ? res.premiumColor : (res.activeColor || '');
+          
+          try {
+            const payload = await encryptText(JSON.stringify({
+              badge: finalBadge,
+              color: finalColor,
+              avatarFrame: res.activeAvatarFrame || ''
+            }), aesKey);
+            socket.emit('equip_attribute', payload);
+          } catch (err) {
+            console.error('Ошибка отправки equip_attribute:', err);
+          }
+        }
+      });
+    });
+  });
+}
+
+// Музыкальная система заказа
+function extractYoutubeVideoId(url) {
+  const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|\&v=)([^#\&\?]*).*/;
+  const match = url.match(regExp);
+  return (match && match[2].length === 11) ? match[2] : url.trim();
+}
+
+if (musicOrderBtn) {
+  musicOrderBtn.addEventListener('click', async () => {
+    if (!musicUrlInput) return;
+    const inputVal = musicUrlInput.value.trim();
+    if (!inputVal) {
+      alert('Пожалуйста, введите ID или ссылку на YouTube видео.');
+      return;
+    }
+
+    const videoId = extractYoutubeVideoId(inputVal);
+    if (!videoId || videoId.length !== 11) {
+      alert('Некорректная ссылка или ID видео YouTube.');
+      return;
+    }
+
+    chrome.storage.local.get(['clickerCoins'], async (res) => {
+      const coins = res.clickerCoins || 0;
+      if (coins < 50) {
+        alert('Недостаточно монет! Заказ музыки стоит 50 🪙.');
+        return;
+      }
+
+      const oembedUrl = `https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${videoId}&format=json`;
+      try {
+        const response = await fetch(oembedUrl);
+        if (!response.ok) throw new Error('Video info not found');
+        const data = await response.json();
+        const title = data.title || 'Заказанный трек';
+
+        const newCoins = coins - 50;
+        chrome.storage.local.set({ clickerCoins: newCoins }, async () => {
+          clickerCoins = newCoins;
+          updateClickerUi();
+          updateShopUi();
+          sendClickerStats();
+
+          try {
+            const orderPayload = await encryptText(JSON.stringify({
+              videoId,
+              title,
+              cost: 50
+            }), aesKey);
+            socket.emit('order_music', orderPayload);
+            musicUrlInput.value = '';
+          } catch (err) {
+            console.error('Ошибка шифрования заказа музыки:', err);
+          }
+        });
+      } catch (err) {
+        alert('Не удалось получить информацию о видео. Проверьте правильность ссылки или ID.');
+      }
+    });
+  });
+}
+
+function handleRoomMusicUpdate(music) {
+  if (roomMusicTimer) {
+    clearTimeout(roomMusicTimer);
+    roomMusicTimer = null;
+  }
+
+  const statusBlock = document.getElementById('relax-music-status');
+  const titleSpan = document.getElementById('relax-music-title');
+  const bySpan = document.getElementById('relax-music-by');
+
+  if (music && music.videoId) {
+    const timeLeft = music.expiresAt - Date.now();
+    if (timeLeft > 0) {
+      if (statusBlock) statusBlock.style.display = 'block';
+      if (titleSpan) titleSpan.textContent = music.title;
+      if (bySpan) bySpan.textContent = music.orderedBy;
+
+      if (gamesPanelRelax && gamesPanelRelax.style.display === 'flex') {
+        playRoomMusic(music.videoId);
+      }
+
+      roomMusicTimer = setTimeout(() => {
+        handleRoomMusicUpdate({ videoId: null });
+      }, timeLeft);
+    } else {
+      handleRoomMusicUpdate({ videoId: null });
+    }
+  } else {
+    if (statusBlock) statusBlock.style.display = 'none';
+
+    if (relaxVideoPlayer && isRoomMusicPlaying) {
+      stopRoomMusic();
+    }
+  }
+}
+
+function playRoomMusic(videoId) {
+  roomMusicVideoId = videoId;
+  isRoomMusicPlaying = true;
+  isCarpetActive = false;
+
+  if (relaxVideoPlayer) {
+    relaxVideoPlayer.src = `https://www.youtube.com/embed/${videoId}?autoplay=1&mute=0&enablejsapi=1`;
+    relaxVideoPlayer.style.display = 'block';
+  }
+  if (relaxPlayerPlaceholder) {
+    relaxPlayerPlaceholder.style.display = 'none';
+  }
+}
+
+function stopRoomMusic() {
+  isRoomMusicPlaying = false;
+  roomMusicVideoId = null;
+  stopRelaxVideo();
 }
