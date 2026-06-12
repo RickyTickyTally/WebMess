@@ -2105,12 +2105,52 @@ let clickerTimer = null;
 let clickerSocketThrottleTimer = null;
 let clickerHasUnsavedChanges = false;
 
+function saveClickerState() {
+  chrome.storage.local.set({
+    clickerCoins: Math.floor(clickerCoins),
+    upgradePickaxe,
+    upgradeDrill,
+    upgradeQuantum,
+    clickerLastSavedTime: Date.now()
+  });
+}
+
+// Сохраняем состояние при закрытии/сворачивании popup
+window.addEventListener('unload', () => {
+  saveClickerState();
+});
+
 function initClickerGame() {
-  chrome.storage.local.get(['clickerCoins', 'upgradePickaxe', 'upgradeDrill', 'upgradeQuantum'], (res) => {
+  chrome.storage.local.get(['clickerCoins', 'upgradePickaxe', 'upgradeDrill', 'upgradeQuantum', 'clickerLastSavedTime'], (res) => {
     clickerCoins = res.clickerCoins || 0;
     upgradePickaxe = res.upgradePickaxe || 1;
     upgradeDrill = res.upgradeDrill || 0;
     upgradeQuantum = res.upgradeQuantum || 0;
+    
+    // Рассчитываем оффлайн-доход от автобуров
+    const lastSaved = res.clickerLastSavedTime;
+    const incomePerSec = upgradeDrill * 1 + upgradeQuantum * 10;
+    if (lastSaved && incomePerSec > 0) {
+      const timeDiffSeconds = Math.floor((Date.now() - lastSaved) / 1000);
+      if (timeDiffSeconds > 0) {
+        const offlineIncome = timeDiffSeconds * incomePerSec;
+        clickerCoins += offlineIncome;
+        
+        // Красивое оповещение в чат
+        setTimeout(() => {
+          appendMessageToUi({
+            author: '📢 Система',
+            text: `Пока вас не было, ваши буры добыли 🪙 ${offlineIncome} коинов! (вы отсутствовали ${timeDiffSeconds} сек)`,
+            time: new Date().toISOString(),
+            badge: '📢',
+            color: '#0d6efd',
+            avatar: '',
+            telegram: '',
+            discord: ''
+          });
+        }, 1500);
+      }
+    }
     
     updateClickerUi();
     
@@ -2125,11 +2165,14 @@ function initClickerGame() {
       }
     }, 1000);
     
-    // Запускаем отправку статистики на сервер каждые 3 секунды
+    // Запускаем отправку статистики на сервер и сохранение в локальное хранилище каждые 3 секунды
     if (clickerSocketThrottleTimer) clearInterval(clickerSocketThrottleTimer);
     clickerSocketThrottleTimer = setInterval(() => {
-      if (clickerHasUnsavedChanges && socket && aesKey) {
-        sendClickerStats();
+      if (clickerHasUnsavedChanges) {
+        saveClickerState();
+        if (socket && aesKey) {
+          sendClickerStats();
+        }
         clickerHasUnsavedChanges = false;
       }
     }, 3000);
@@ -2170,14 +2213,6 @@ async function sendClickerStats() {
   try {
     const payload = await encryptText(JSON.stringify({ coins: Math.floor(clickerCoins) }), aesKey);
     socket.emit('clicker_update', payload);
-    
-    // Сохраняем в локальное хранилище
-    chrome.storage.local.set({
-      clickerCoins,
-      upgradePickaxe,
-      upgradeDrill,
-      upgradeQuantum
-    });
   } catch(e) {
     console.error('Ошибка отправки кликера', e);
   }
@@ -2268,6 +2303,7 @@ if (buyUpgradePick) {
       upgradePickaxe += 1;
       clickerHasUnsavedChanges = true;
       updateClickerUi();
+      saveClickerState();
       sendClickerStats();
     }
   });
@@ -2282,6 +2318,7 @@ if (buyUpgradeDrill) {
       upgradeDrill += 1;
       clickerHasUnsavedChanges = true;
       updateClickerUi();
+      saveClickerState();
       sendClickerStats();
     }
   });
@@ -2296,6 +2333,7 @@ if (buyUpgradeQuantum) {
       upgradeQuantum += 1;
       clickerHasUnsavedChanges = true;
       updateClickerUi();
+      saveClickerState();
       sendClickerStats();
     }
   });
