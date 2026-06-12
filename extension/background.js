@@ -13,17 +13,11 @@ self.document = {
   body: {
     appendChild: () => {}
   },
-  cookie: ""
+  cookie: "",
+  addEventListener: () => {},
+  removeEventListener: () => {}
 };
-self.navigator = self.navigator || {
-  userAgent: 'Mozilla/5.0'
-};
-self.location = self.location || {
-  protocol: 'https:',
-  href: ''
-};
-self.addEventListener = self.addEventListener || (() => {});
-self.removeEventListener = self.removeEventListener || (() => {});
+// navigator, location, addEventListener, and removeEventListener are natively defined on self in Service Worker and cannot be overridden.
 
 importScripts('socket.io.min.js');
 
