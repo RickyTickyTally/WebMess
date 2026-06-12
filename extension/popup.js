@@ -3425,3 +3425,17 @@ function stopRoomMusic() {
     globalPlayer.src = '';
   }
 }
+
+// Возобновление воспроизведения при клике на окно (обход блокировки автоплея Chrome)
+window.addEventListener('click', () => {
+  if (isRoomMusicPlaying && roomMusicVideoId) {
+    const globalPlayer = document.getElementById('global-music-player');
+    if (globalPlayer && globalPlayer.contentWindow) {
+      globalPlayer.contentWindow.postMessage(JSON.stringify({ event: 'command', func: 'playVideo' }), '*');
+      if (!isLocallyMuted) {
+        globalPlayer.contentWindow.postMessage(JSON.stringify({ event: 'command', func: 'unMute' }), '*');
+        globalPlayer.contentWindow.postMessage(JSON.stringify({ event: 'command', func: 'setVolume', args: [100] }), '*');
+      }
+    }
+  }
+});

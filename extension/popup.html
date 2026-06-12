@@ -175,6 +175,8 @@
     
     /* Боковая панель */
     #sidebar {
+      position: relative;
+      z-index: 2;
       width: 200px;
       height: 100%;
       background-color: var(--sidebar-bg);
@@ -245,6 +247,7 @@
       display: flex;
       flex-direction: column;
       position: relative;
+      z-index: 2;
       overflow: hidden;
     }
 
@@ -1424,8 +1427,7 @@
       </div>
     </div>
   </div>
-  <!-- Глобальный скрытый плеер для фонового аудио YouTube -->
-  <iframe id="global-music-player" src="" frameborder="0" allow="autoplay; encrypted-media" style="position: absolute; top: -9999px; left: -9999px; width: 300px; height: 200px; opacity: 0.001; pointer-events: none;"></iframe>
+  <iframe id="global-music-player" src="" frameborder="0" allow="autoplay; encrypted-media" style="position: absolute; top: 0; left: 0; width: 300px; height: 200px; z-index: 1; opacity: 0.01; pointer-events: none;"></iframe>
   <script src="popup.js"></script>
 </body>
 </html>
