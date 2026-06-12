@@ -442,7 +442,11 @@ function connectToChat(url, nickname) {
   }
   aesKey = null;
 
-  showScreen('chat');
+  if (document.body.classList.contains('mode-tab')) {
+    showScreen('games');
+  } else {
+    showScreen('chat');
+  }
   messagesContainer.innerHTML = '';
   usersCountText.textContent = 'В сети: Подключение...';
 
@@ -822,6 +826,10 @@ function connectToChat(url, nickname) {
         if (!aesKey) return;
         const decryptedStr = await decryptText(encryptedPayload, aesKey);
         gameFoods = JSON.parse(decryptedStr);
+        
+        if (document.body.classList.contains('mode-tab') && !isGameActive) {
+          startGame();
+        }
       } catch (err) {
         console.warn('Ошибка расшифровки game_food_list:', err.message || err);
       }
