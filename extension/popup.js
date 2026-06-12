@@ -2357,7 +2357,7 @@ const relaxVideoPlayer = document.getElementById('relax-video-player');
 const relaxPlayerPlaceholder = document.getElementById('relax-player-placeholder');
 
 const RELAX_VIDEOS = {
-  carpet: 'https://www.youtube.com/embed/PcrD4Z5jYgU?autoplay=1&mute=1&loop=1&playlist=PcrD4Z5jYgU',
+  carpet: 'https://www.youtube.com/embed/videoseries?list=PLRH0_0gY-PlLdaMOrox5Kp0Yx2QN0bzts&autoplay=1&mute=1&loop=1',
   soap: 'https://www.youtube.com/embed/V6_V9n5X4oQ?autoplay=1&mute=1&loop=1&playlist=V6_V9n5X4oQ',
   subway: 'https://www.youtube.com/embed/42_xee_vjM0?autoplay=1&mute=1&loop=1&playlist=42_xee_vjM0',
   sand: 'https://www.youtube.com/embed/qL_fH_xH5Jg?autoplay=1&mute=1&loop=1&playlist=qL_fH_xH5Jg'
