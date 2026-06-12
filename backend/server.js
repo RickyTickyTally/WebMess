@@ -60,8 +60,14 @@ const bottleGames = new Map();
 // Хранилище истории сообщений чата в Бутылочке
 const bottleChatHistory = [];
 
-// Хранилище еды в PVP Арене (Slither.io)
-let gameFoods = [];
+// Хранилище еды в PVP Арене (Slither.io) по режимам
+const gameFoodsByMode = {
+  ffa: [],
+  team: [],
+  infection: []
+};
+const socketGameModes = new Map(); // socket.id -> mode ('ffa', 'team', 'infection')
+
 const MAX_FOODS = 1000;
 const FOOD_COLORS = ['#ff3333', '#33ff33', '#3333ff', '#ffff33', '#ff33ff', '#33ffff', '#ff9900', '#9900ff'];
 
@@ -76,9 +82,13 @@ function createRandomFood() {
 }
 
 function spawnInitialFood() {
-  gameFoods = [];
+  gameFoodsByMode.ffa = [];
+  gameFoodsByMode.team = [];
+  gameFoodsByMode.infection = [];
   for (let i = 0; i < MAX_FOODS; i++) {
-    gameFoods.push(createRandomFood());
+    gameFoodsByMode.ffa.push(createRandomFood());
+    gameFoodsByMode.team.push(createRandomFood());
+    gameFoodsByMode.infection.push(createRandomFood());
   }
 }
 
@@ -559,6 +569,21 @@ function leaveBottleGame(room, socketId) {
   }
 }
 
+function getGameModesPlayerCounts() {
+  const counts = { ffa: 0, team: 0, infection: 0 };
+  for (const mode of socketGameModes.values()) {
+    if (counts[mode] !== undefined) {
+      counts[mode]++;
+    }
+  }
+  return counts;
+}
+
+function broadcastGameModesPlayerCounts() {
+  const counts = getGameModesPlayerCounts();
+  broadcastToRoom(GLOBAL_GAMES_ROOM, 'game_modes_player_counts', counts);
+}
+
 io.on('connection', (socket) => {
   console.log(`[+] Подключен сокет: ${socket.id}`);
 
@@ -662,9 +687,9 @@ io.on('connection', (socket) => {
       const encryptedBottleChatHistory = encryptPayload(JSON.stringify(bottleChatHistory), key);
       socket.emit('bottle_chat_history', encryptedBottleChatHistory);
 
-      // Отправляем список еды в PVP Арене (Slither.io)
-      const encryptedFoodList = encryptPayload(JSON.stringify(gameFoods), key);
-      socket.emit('game_food_list', encryptedFoodList);
+      // Отправляем текущие количества игроков в режимах новому участнику
+      const encryptedCounts = encryptPayload(JSON.stringify(getGameModesPlayerCounts()), key);
+      socket.emit('game_modes_player_counts', encryptedCounts);
 
       // Отправляем текущее состояние Бутылочки новому участнику из глобальной комнаты
       if (bottleGames.has(GLOBAL_GAMES_ROOM)) {
@@ -885,7 +910,17 @@ io.on('connection', (socket) => {
       const decryptedStr = decryptPayload(encryptedPayload, key);
       const playerData = JSON.parse(decryptedStr);
       playerData.id = socket.id;
-      broadcastToRoom(GLOBAL_GAMES_ROOM, 'game_player_joined', playerData);
+
+      const mode = playerData.mode || 'ffa';
+      socketGameModes.set(socket.id, mode);
+      socket.join('global_games_' + mode);
+
+      broadcastToRoom('global_games_' + mode, 'game_player_joined', playerData);
+      broadcastGameModesPlayerCounts();
+
+      // Send the mode-specific food list to this player
+      const foods = gameFoodsByMode[mode] || [];
+      socket.emit('game_food_list', encryptPayload(JSON.stringify(foods), key));
     } catch (err) {
       console.error('Ошибка game_join:', err);
     }
@@ -899,7 +934,9 @@ io.on('connection', (socket) => {
       const decryptedStr = decryptPayload(encryptedPayload, key);
       const updateData = JSON.parse(decryptedStr);
       updateData.id = socket.id;
-      broadcastToRoom(GLOBAL_GAMES_ROOM, 'game_player_updated', updateData);
+
+      const mode = socketGameModes.get(socket.id) || 'ffa';
+      broadcastToRoom('global_games_' + mode, 'game_player_updated', updateData);
     } catch (err) {
       console.error('Ошибка game_update:', err);
     }
@@ -913,7 +950,9 @@ io.on('connection', (socket) => {
       const decryptedStr = decryptPayload(encryptedPayload, key);
       const bulletData = JSON.parse(decryptedStr);
       bulletData.id = socket.id;
-      broadcastToRoom(GLOBAL_GAMES_ROOM, 'game_bullet_spawned', bulletData);
+
+      const mode = socketGameModes.get(socket.id) || 'ffa';
+      broadcastToRoom('global_games_' + mode, 'game_bullet_spawned', bulletData);
     } catch (err) {
       console.error('Ошибка game_shoot:', err);
     }
@@ -926,7 +965,9 @@ io.on('connection', (socket) => {
     try {
       const decryptedStr = decryptPayload(encryptedPayload, key);
       const hitData = JSON.parse(decryptedStr);
-      broadcastToRoom(GLOBAL_GAMES_ROOM, 'game_player_hit', hitData);
+
+      const mode = socketGameModes.get(socket.id) || 'ffa';
+      broadcastToRoom('global_games_' + mode, 'game_player_hit', hitData);
     } catch (err) {
       console.error('Ошибка game_hit:', err);
     }
@@ -940,7 +981,7 @@ io.on('connection', (socket) => {
       const decryptedStr = decryptPayload(encryptedPayload, key);
       const { mode } = JSON.parse(decryptedStr);
       globalGameMode = mode;
-      broadcastToRoom(GLOBAL_GAMES_ROOM, 'game_mode_updated', { mode });
+      // We don't broadcast globally anymore to keep mode rooms separate.
     } catch (err) {
       console.error('Ошибка game_mode_change:', err);
     }
@@ -954,13 +995,16 @@ io.on('connection', (socket) => {
       const decryptedStr = decryptPayload(encryptedPayload, key);
       const { id } = JSON.parse(decryptedStr);
       
-      const idx = gameFoods.findIndex(f => f.id === id);
+      const mode = socketGameModes.get(socket.id) || 'ffa';
+      const foods = gameFoodsByMode[mode] || [];
+      
+      const idx = foods.findIndex(f => f.id === id);
       if (idx !== -1) {
-        gameFoods.splice(idx, 1);
+        foods.splice(idx, 1);
         const newFood = createRandomFood();
-        gameFoods.push(newFood);
+        foods.push(newFood);
         
-        broadcastToRoom(GLOBAL_GAMES_ROOM, 'game_food_eaten', {
+        broadcastToRoom('global_games_' + mode, 'game_food_eaten', {
           id: id,
           newFood: newFood
         });
@@ -978,6 +1022,9 @@ io.on('connection', (socket) => {
       const decryptedStr = decryptPayload(encryptedPayload, key);
       const { body } = JSON.parse(decryptedStr);
       
+      const mode = socketGameModes.get(socket.id) || 'ffa';
+      const foods = gameFoodsByMode[mode] || [];
+      
       if (body && Array.isArray(body)) {
         const newSpawnedFoods = [];
         for (let i = 0; i < body.length; i += 2) {
@@ -990,16 +1037,16 @@ io.on('connection', (socket) => {
               size: 4 + Math.random() * 4,
               color: FOOD_COLORS[Math.floor(Math.random() * FOOD_COLORS.length)]
             };
-            gameFoods.push(food);
+            foods.push(food);
             newSpawnedFoods.push(food);
           }
         }
         
-        if (gameFoods.length > MAX_FOODS + 100) {
-          gameFoods.splice(0, gameFoods.length - (MAX_FOODS + 100));
+        if (foods.length > MAX_FOODS + 100) {
+          foods.splice(0, foods.length - (MAX_FOODS + 100));
         }
         
-        broadcastToRoom(GLOBAL_GAMES_ROOM, 'game_food_spawned', newSpawnedFoods);
+        broadcastToRoom('global_games_' + mode, 'game_food_spawned', newSpawnedFoods);
       }
     } catch (err) {
       console.error('Ошибка game_snake_died:', err);
@@ -1053,7 +1100,13 @@ io.on('connection', (socket) => {
   socket.on('game_leave', () => {
     const user = users.get(socket.id);
     if (!user) return;
-    broadcastToRoom(GLOBAL_GAMES_ROOM, 'game_player_left', { id: socket.id });
+    const mode = socketGameModes.get(socket.id);
+    if (mode) {
+      socketGameModes.delete(socket.id);
+      socket.leave('global_games_' + mode);
+      broadcastToRoom('global_games_' + mode, 'game_player_left', { id: socket.id });
+      broadcastGameModesPlayerCounts();
+    }
   });
 
   // События игры «Бутылочка»
@@ -1170,7 +1223,12 @@ io.on('connection', (socket) => {
       // Отложенный выход из игр на 20 секунд (для сохранения места за столом)
       const gameTimeoutId = setTimeout(() => {
         console.log(`[-] Игрок ${nickname} удален из игр по таймауту 20с`);
-        broadcastToRoom(GLOBAL_GAMES_ROOM, 'game_player_left', { id: socket.id });
+        const mode = socketGameModes.get(socket.id);
+        if (mode) {
+          socketGameModes.delete(socket.id);
+          broadcastToRoom('global_games_' + mode, 'game_player_left', { id: socket.id });
+          broadcastGameModesPlayerCounts();
+        }
         leaveBottleGame(GLOBAL_GAMES_ROOM, socket.id);
         gameLeaveTimeouts.delete(nickname);
       }, 20000);

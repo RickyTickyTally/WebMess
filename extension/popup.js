@@ -573,6 +573,10 @@ function connectToChat(url, nickname) {
               
               // Запускаем автоматическую добычу коинов кликера
               initClickerGame();
+
+              if (document.body.classList.contains('mode-tab')) {
+                startGame();
+              }
             });
           } catch (err) {
             console.error('Ошибка рукопожатия:', err);
@@ -832,10 +836,6 @@ function connectToChat(url, nickname) {
         if (!aesKey) return;
         const decryptedStr = await decryptText(encryptedPayload, aesKey);
         gameFoods = JSON.parse(decryptedStr);
-        
-        if (document.body.classList.contains('mode-tab') && !isGameActive) {
-          startGame();
-        }
       } catch (err) {
         console.warn('Ошибка расшифровки game_food_list:', err.message || err);
       }
@@ -898,6 +898,17 @@ function connectToChat(url, nickname) {
         renderGameRoomsList(rooms);
       } catch (err) {
         console.warn('Ошибка расшифровки game_rooms_list:', err.message || err);
+      }
+    });
+
+    socket.on('game_modes_player_counts', async (encryptedPayload) => {
+      try {
+        if (!aesKey) return;
+        const decryptedStr = await decryptText(encryptedPayload, aesKey);
+        const counts = JSON.parse(decryptedStr);
+        updateGameModesPlayerCountsUi(counts);
+      } catch (err) {
+        console.warn('Ошибка расшифровки game_modes_player_counts:', err.message || err);
       }
     });
 
@@ -1431,6 +1442,16 @@ function updateGameMode(mode) {
   } else if (mode === 'infection') {
     desc.textContent = 'Инфекция: Зомби-змейки (зеленые) заражают касанием выживших (белых), обращая их в зомби.';
   }
+}
+
+function updateGameModesPlayerCountsUi(counts) {
+  const ffaBtn = document.querySelector('.game-mode-btn[data-mode="ffa"]');
+  const teamBtn = document.querySelector('.game-mode-btn[data-mode="team"]');
+  const infBtn = document.querySelector('.game-mode-btn[data-mode="infection"]');
+  
+  if (ffaBtn) ffaBtn.textContent = `FFA [${counts.ffa || 0}]`;
+  if (teamBtn) teamBtn.textContent = `TDM [${counts.team || 0}]`;
+  if (infBtn) infBtn.textContent = `Инфекция [${counts.infection || 0}]`;
 }
 
 gameJoinBtn.addEventListener('click', startGame);
@@ -2347,7 +2368,8 @@ async function sendGameJoin() {
         badge: localPlayer.badge,
         color: localPlayer.color,
         length: localPlayer.length,
-        body: localPlayer.body
+        body: localPlayer.body,
+        mode: currentGameMode
       }), aesKey);
       socket.emit('game_join', payload);
     } catch(e) {
