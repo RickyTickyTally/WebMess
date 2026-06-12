@@ -60,6 +60,30 @@ const bottleGames = new Map();
 // Хранилище истории сообщений чата в Бутылочке
 const bottleChatHistory = [];
 
+// Хранилище еды в PVP Арене (Slither.io)
+let gameFoods = [];
+const MAX_FOODS = 150;
+const FOOD_COLORS = ['#ff3333', '#33ff33', '#3333ff', '#ffff33', '#ff33ff', '#33ffff', '#ff9900', '#9900ff'];
+
+function createRandomFood() {
+  return {
+    id: 'food_' + Math.random().toString(36).substr(2, 9),
+    x: Math.random() * 2000,
+    y: Math.random() * 2000,
+    size: 2 + Math.random() * 4,
+    color: FOOD_COLORS[Math.floor(Math.random() * FOOD_COLORS.length)]
+  };
+}
+
+function spawnInitialFood() {
+  gameFoods = [];
+  for (let i = 0; i < MAX_FOODS; i++) {
+    gameFoods.push(createRandomFood());
+  }
+}
+
+spawnInitialFood();
+
 
 
 // Хранилище приватизированных комнат (room -> { owner, theme })
@@ -638,6 +662,10 @@ io.on('connection', (socket) => {
       const encryptedBottleChatHistory = encryptPayload(JSON.stringify(bottleChatHistory), key);
       socket.emit('bottle_chat_history', encryptedBottleChatHistory);
 
+      // Отправляем список еды в PVP Арене (Slither.io)
+      const encryptedFoodList = encryptPayload(JSON.stringify(gameFoods), key);
+      socket.emit('game_food_list', encryptedFoodList);
+
       // Отправляем текущее состояние Бутылочки новому участнику из глобальной комнаты
       if (bottleGames.has(GLOBAL_GAMES_ROOM)) {
         const game = bottleGames.get(GLOBAL_GAMES_ROOM);
@@ -915,6 +943,66 @@ io.on('connection', (socket) => {
       broadcastToRoom(GLOBAL_GAMES_ROOM, 'game_mode_updated', { mode });
     } catch (err) {
       console.error('Ошибка game_mode_change:', err);
+    }
+  });
+
+  socket.on('game_eat_food', (encryptedPayload) => {
+    const key = socketKeys.get(socket.id);
+    const user = users.get(socket.id);
+    if (!key || !user) return;
+    try {
+      const decryptedStr = decryptPayload(encryptedPayload, key);
+      const { id } = JSON.parse(decryptedStr);
+      
+      const idx = gameFoods.findIndex(f => f.id === id);
+      if (idx !== -1) {
+        gameFoods.splice(idx, 1);
+        const newFood = createRandomFood();
+        gameFoods.push(newFood);
+        
+        broadcastToRoom(GLOBAL_GAMES_ROOM, 'game_food_eaten', {
+          id: id,
+          newFood: newFood
+        });
+      }
+    } catch (err) {
+      console.error('Ошибка game_eat_food:', err);
+    }
+  });
+
+  socket.on('game_snake_died', (encryptedPayload) => {
+    const key = socketKeys.get(socket.id);
+    const user = users.get(socket.id);
+    if (!key || !user) return;
+    try {
+      const decryptedStr = decryptPayload(encryptedPayload, key);
+      const { body } = JSON.parse(decryptedStr);
+      
+      if (body && Array.isArray(body)) {
+        const newSpawnedFoods = [];
+        for (let i = 0; i < body.length; i += 2) {
+          const segment = body[i];
+          if (segment && typeof segment.x === 'number' && typeof segment.y === 'number') {
+            const food = {
+              id: 'food_' + Math.random().toString(36).substr(2, 9),
+              x: segment.x + (Math.random() - 0.5) * 10,
+              y: segment.y + (Math.random() - 0.5) * 10,
+              size: 4 + Math.random() * 4,
+              color: FOOD_COLORS[Math.floor(Math.random() * FOOD_COLORS.length)]
+            };
+            gameFoods.push(food);
+            newSpawnedFoods.push(food);
+          }
+        }
+        
+        if (gameFoods.length > MAX_FOODS + 100) {
+          gameFoods.splice(0, gameFoods.length - (MAX_FOODS + 100));
+        }
+        
+        broadcastToRoom(GLOBAL_GAMES_ROOM, 'game_food_spawned', newSpawnedFoods);
+      }
+    } catch (err) {
+      console.error('Ошибка game_snake_died:', err);
     }
   });
 
