@@ -349,10 +349,15 @@ function connectToChat(url, nickname) {
         // Рендерим список с бейджами и цветами
         usersList.innerHTML = 'В сети: ';
         users.forEach((u, index) => {
+          const isObj = typeof u === 'object' && u !== null;
+          const nickname = isObj ? u.nickname : u;
+          const badge = isObj ? u.badge : null;
+          const color = isObj ? u.color : null;
+
           const span = document.createElement('span');
-          span.textContent = `${u.badge ? u.badge + ' ' : ''}${u.nickname}`;
-          if (u.color) {
-            span.style.color = u.color;
+          span.textContent = `${badge ? badge + ' ' : ''}${nickname}`;
+          if (color) {
+            span.style.color = color;
             span.style.fontWeight = 'bold';
           }
           

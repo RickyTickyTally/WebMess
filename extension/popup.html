@@ -226,20 +226,20 @@
       position: relative;
     }
     
-    /* Свои сообщения (справа) */
+    /* Свои сообщения (слева) */
     .message.self {
-      align-self: flex-end;
+      align-self: flex-start;
       background-color: #d9fdd3;
       color: #212529;
-      border-bottom-right-radius: 2px;
+      border-bottom-left-radius: 2px;
     }
     
-    /* Чужие сообщения (слева) */
+    /* Чужие сообщения (справа) */
     .message.other {
-      align-self: flex-start;
+      align-self: flex-end;
       background-color: #ffffff;
       color: #212529;
-      border-bottom-left-radius: 2px;
+      border-bottom-right-radius: 2px;
     }
 
     .message .author {
