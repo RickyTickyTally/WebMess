@@ -59,6 +59,26 @@ const gameQuitBtn = document.getElementById('game-quit-btn');
 const gameRoomsList = document.getElementById('game-rooms-list');
 const refreshRoomsBtn = document.getElementById('refresh-rooms-btn');
 
+// Элементы игры «Бутылочка»
+const gameTabBottle = document.getElementById('game-tab-bottle');
+const gamesPanelBottle = document.getElementById('games-panel-bottle');
+const bottleStatusText = document.getElementById('bottle-status-text');
+const bottleTurnTimer = document.getElementById('bottle-turn-timer');
+const bottleTimerValue = document.getElementById('bottle-timer-value');
+const bottleTable = document.getElementById('bottle-table');
+const bottleSprite = document.getElementById('bottle-sprite');
+const bottlePlayersContainer = document.getElementById('bottle-players-container');
+const bottleChoiceOverlay = document.getElementById('bottle-choice-overlay');
+const bottleChoiceTitle = document.getElementById('bottle-choice-title');
+const bottleChoiceYesBtn = document.getElementById('bottle-choice-yes-btn');
+const bottleChoiceNoBtn = document.getElementById('bottle-choice-no-btn');
+const bottleChoiceTimerVal = document.getElementById('bottle-choice-timer-val');
+const bottleJoinBtn = document.getElementById('bottle-join-btn');
+const bottleLeaveBtn = document.getElementById('bottle-leave-btn');
+const bottleSpinBtn = document.getElementById('bottle-spin-btn');
+
+let bottleChoiceTimer = null;
+
 let isGameActive = false;
 let currentGameMode = 'ffa';
 let localPlayer = {
@@ -194,6 +214,9 @@ function showScreen(screenId) {
   if (screenId !== 'games') {
     if (typeof stopRelaxVideo === 'function') {
       stopRelaxVideo();
+    }
+    if (typeof leaveBottleGameClient === 'function') {
+      leaveBottleGameClient();
     }
   }
 }
@@ -425,6 +448,9 @@ function connectToChat(url, nickname) {
 
     socket.on('disconnect', () => {
       aesKey = null;
+      if (typeof leaveBottleGameClient === 'function') {
+        leaveBottleGameClient();
+      }
     });
 
     socket.on('connect', async () => {
@@ -868,6 +894,63 @@ function connectToChat(url, nickname) {
         applyRoomSettings(settings);
       } catch (err) {
         console.warn('Ошибка расшифровки room_settings_updated:', err.message || err);
+      }
+    });
+
+    // События игры «Бутылочка»
+    socket.on('bottle_state', async (encryptedPayload) => {
+      try {
+        if (!aesKey) return;
+        const decryptedStr = await decryptText(encryptedPayload, aesKey);
+        const game = JSON.parse(decryptedStr);
+        updateBottleUi(game);
+      } catch (err) {
+        console.warn('Ошибка расшифровки bottle_state:', err.message || err);
+      }
+    });
+
+    socket.on('bottle_spin_start', async (encryptedPayload) => {
+      try {
+        if (!aesKey) return;
+        const decryptedStr = await decryptText(encryptedPayload, aesKey);
+        const { spinnerId, targetId, angle } = JSON.parse(decryptedStr);
+
+        bottleStatusText.textContent = 'Бутылочка крутится... 🍾';
+        bottleSpinBtn.style.display = 'none';
+
+        bottleSprite.style.transition = 'none';
+        const currentAngle = parseFloat(bottleSprite.style.transform.replace('rotate(', '').replace('deg)', '')) || 0;
+        const angleModulo = currentAngle % 360;
+        bottleSprite.style.transform = `rotate(${angleModulo}deg)`;
+
+        bottleSprite.offsetHeight; // force reflow
+
+        bottleSprite.style.transition = 'transform 4s cubic-bezier(0.15, 0.85, 0.35, 1)';
+        bottleSprite.style.transform = `rotate(${angle}deg)`;
+      } catch (err) {
+        console.warn('Ошибка расшифровки bottle_spin_start:', err.message || err);
+      }
+    });
+
+    socket.on('bottle_kiss_result', async (encryptedPayload) => {
+      try {
+        if (!aesKey) return;
+        const decryptedStr = await decryptText(encryptedPayload, aesKey);
+        const { success } = JSON.parse(decryptedStr);
+
+        bottleChoiceOverlay.style.display = 'none';
+        if (bottleChoiceTimer) {
+          clearInterval(bottleChoiceTimer);
+          bottleChoiceTimer = null;
+        }
+
+        if (success) {
+          showKissSuccessAnimation();
+        } else {
+          showKissFailAnimation();
+        }
+      } catch (err) {
+        console.warn('Ошибка расшифровки bottle_kiss_result:', err.message || err);
       }
     });
   });
@@ -2454,9 +2537,10 @@ function stopRelaxVideo() {
   });
 }
 
-if (gameTabPvp && gameTabClicker && gameTabRelax) {
+if (gameTabPvp && gameTabClicker && gameTabRelax && gameTabBottle) {
   gameTabPvp.addEventListener('click', () => {
     stopRelaxVideo();
+    leaveBottleGameClient();
 
     gameTabPvp.classList.add('active');
     gameTabPvp.style.background = 'var(--tab-active-bg)';
@@ -2469,14 +2553,20 @@ if (gameTabPvp && gameTabClicker && gameTabRelax) {
     gameTabRelax.classList.remove('active');
     gameTabRelax.style.background = 'transparent';
     gameTabRelax.style.color = 'var(--text-color)';
+
+    gameTabBottle.classList.remove('active');
+    gameTabBottle.style.background = 'transparent';
+    gameTabBottle.style.color = 'var(--text-color)';
     
     if (gamesPanelPvp) gamesPanelPvp.style.display = 'flex';
     if (gamesPanelClicker) gamesPanelClicker.style.display = 'none';
     if (gamesPanelRelax) gamesPanelRelax.style.display = 'none';
+    if (gamesPanelBottle) gamesPanelBottle.style.display = 'none';
   });
   
   gameTabClicker.addEventListener('click', () => {
     stopRelaxVideo();
+    leaveBottleGameClient();
 
     gameTabClicker.classList.add('active');
     gameTabClicker.style.background = 'var(--tab-active-bg)';
@@ -2489,15 +2579,22 @@ if (gameTabPvp && gameTabClicker && gameTabRelax) {
     gameTabRelax.classList.remove('active');
     gameTabRelax.style.background = 'transparent';
     gameTabRelax.style.color = 'var(--text-color)';
+
+    gameTabBottle.classList.remove('active');
+    gameTabBottle.style.background = 'transparent';
+    gameTabBottle.style.color = 'var(--text-color)';
     
     if (gamesPanelClicker) gamesPanelClicker.style.display = 'flex';
     if (gamesPanelPvp) gamesPanelPvp.style.display = 'none';
     if (gamesPanelRelax) gamesPanelRelax.style.display = 'none';
+    if (gamesPanelBottle) gamesPanelBottle.style.display = 'none';
     
     renderClickerLeaderboard(currentUsersInRoom);
   });
 
   gameTabRelax.addEventListener('click', () => {
+    leaveBottleGameClient();
+
     gameTabRelax.classList.add('active');
     gameTabRelax.style.background = 'var(--tab-active-bg)';
     gameTabRelax.style.color = 'var(--tab-active-text)';
@@ -2509,10 +2606,45 @@ if (gameTabPvp && gameTabClicker && gameTabRelax) {
     gameTabClicker.classList.remove('active');
     gameTabClicker.style.background = 'transparent';
     gameTabClicker.style.color = 'var(--text-color)';
+
+    gameTabBottle.classList.remove('active');
+    gameTabBottle.style.background = 'transparent';
+    gameTabBottle.style.color = 'var(--text-color)';
     
     if (gamesPanelRelax) gamesPanelRelax.style.display = 'flex';
     if (gamesPanelPvp) gamesPanelPvp.style.display = 'none';
     if (gamesPanelClicker) gamesPanelClicker.style.display = 'none';
+    if (gamesPanelBottle) gamesPanelBottle.style.display = 'none';
+  });
+
+  gameTabBottle.addEventListener('click', () => {
+    stopRelaxVideo();
+    stopGame();
+
+    gameTabBottle.classList.add('active');
+    gameTabBottle.style.background = 'var(--tab-active-bg)';
+    gameTabBottle.style.color = 'var(--tab-active-text)';
+    
+    gameTabPvp.classList.remove('active');
+    gameTabPvp.style.background = 'transparent';
+    gameTabPvp.style.color = 'var(--text-color)';
+
+    gameTabClicker.classList.remove('active');
+    gameTabClicker.style.background = 'transparent';
+    gameTabClicker.style.color = 'var(--text-color)';
+
+    gameTabRelax.classList.remove('active');
+    gameTabRelax.style.background = 'transparent';
+    gameTabRelax.style.color = 'var(--text-color)';
+    
+    if (gamesPanelBottle) gamesPanelBottle.style.display = 'flex';
+    if (gamesPanelPvp) gamesPanelPvp.style.display = 'none';
+    if (gamesPanelClicker) gamesPanelClicker.style.display = 'none';
+    if (gamesPanelRelax) gamesPanelRelax.style.display = 'none';
+    
+    if (currentBottleGameState) {
+      updateBottleUi(currentBottleGameState);
+    }
   });
 }
 
@@ -2552,3 +2684,317 @@ document.querySelectorAll('.relax-video-btn').forEach(btn => {
     }
   });
 });
+
+// --- ИГРА БУТЫЛОЧКА: КЛИЕНТСКАЯ ЛОГИКА ---
+
+let currentBottleGameState = null;
+
+function leaveBottleGameClient() {
+  if (socket && aesKey) {
+    socket.emit('bottle_leave');
+  }
+  if (bottleChoiceOverlay) {
+    bottleChoiceOverlay.style.display = 'none';
+  }
+  if (bottleChoiceTimer) {
+    clearInterval(bottleChoiceTimer);
+    bottleChoiceTimer = null;
+  }
+}
+
+function startChoiceCountdown(seconds) {
+  if (bottleChoiceTimer) clearInterval(bottleChoiceTimer);
+  let remaining = seconds;
+  if (bottleChoiceTimerVal) bottleChoiceTimerVal.textContent = remaining;
+
+  bottleChoiceTimer = setInterval(() => {
+    remaining--;
+    if (bottleChoiceTimerVal) bottleChoiceTimerVal.textContent = remaining;
+    if (remaining <= 0) {
+      clearInterval(bottleChoiceTimer);
+      bottleChoiceTimer = null;
+      if (bottleChoiceOverlay) bottleChoiceOverlay.style.display = 'none';
+    }
+  }, 1000);
+}
+
+function renderBottlePlayers(players, spinnerId, targetId, turnIndex) {
+  if (!bottlePlayersContainer) return;
+  bottlePlayersContainer.innerHTML = '';
+  if (!players || players.length === 0) return;
+
+  const rect = bottlePlayersContainer.getBoundingClientRect();
+  const centerX = rect.width > 0 ? rect.width / 2 : 185;
+  const centerY = rect.height > 0 ? rect.height / 2 : 100;
+  const radius = 72; // Радиус рассадки от центра стола
+
+  const N = players.length;
+  players.forEach((player, i) => {
+    const angle = -90 + (360 / N) * i;
+    const rad = angle * Math.PI / 180;
+    const x = centerX + radius * Math.cos(rad);
+    const y = centerY + radius * Math.sin(rad);
+
+    const playerDiv = document.createElement('div');
+    playerDiv.style.position = 'absolute';
+    playerDiv.style.left = `${x - 20}px`; // Размер аватарки 40px -> смещение на 20px
+    playerDiv.style.top = `${y - 20}px`;
+    playerDiv.style.width = '40px';
+    playerDiv.style.height = '40px';
+    playerDiv.style.borderRadius = '50%';
+    playerDiv.style.border = '2px solid var(--border-color)';
+    playerDiv.style.backgroundColor = 'var(--input-bg)';
+    playerDiv.style.display = 'flex';
+    playerDiv.style.alignItems = 'center';
+    playerDiv.style.justifyContent = 'center';
+    playerDiv.style.boxShadow = '0 2px 6px rgba(0,0,0,0.15)';
+    playerDiv.style.pointerEvents = 'auto';
+    playerDiv.style.transition = 'all 0.3s ease';
+
+    if (player.socketId === spinnerId) {
+      playerDiv.style.borderColor = '#e91e63';
+      playerDiv.style.boxShadow = '0 0 8px #e91e63';
+    } else if (player.socketId === targetId) {
+      playerDiv.style.borderColor = '#2196f3';
+      playerDiv.style.boxShadow = '0 0 8px #2196f3';
+    } else if (i === turnIndex) {
+      playerDiv.style.borderColor = 'var(--accent-color)';
+      playerDiv.style.boxShadow = '0 0 6px var(--accent-color)';
+    }
+
+    if (player.avatar) {
+      const img = document.createElement('img');
+      img.src = player.avatar;
+      img.style.width = '100%';
+      img.style.height = '100%';
+      img.style.objectFit = 'cover';
+      img.style.borderRadius = '50%';
+      playerDiv.appendChild(img);
+    } else {
+      const char = player.badge || player.nickname.charAt(0).toUpperCase();
+      playerDiv.textContent = char;
+      playerDiv.style.fontSize = '12px';
+      playerDiv.style.fontWeight = 'bold';
+      if (player.color) {
+        playerDiv.style.backgroundColor = player.color;
+        playerDiv.style.color = '#fff';
+      } else {
+        playerDiv.style.color = 'var(--text-color)';
+      }
+    }
+
+    playerDiv.title = player.nickname + (player.isBot ? ' 🤖' : '') + (player.socketId === socket.id ? ' (Вы)' : '');
+
+    const nameLabel = document.createElement('div');
+    nameLabel.textContent = player.nickname.length > 8 ? player.nickname.substring(0, 7) + '..' : player.nickname;
+    nameLabel.style.position = 'absolute';
+    nameLabel.style.bottom = '-14px';
+    nameLabel.style.fontSize = '8px';
+    nameLabel.style.width = '50px';
+    nameLabel.style.textAlign = 'center';
+    nameLabel.style.color = 'var(--text-color)';
+    nameLabel.style.textShadow = '0 1px 2px rgba(0,0,0,0.5)';
+    nameLabel.style.fontWeight = 'bold';
+    nameLabel.style.left = '50%';
+    nameLabel.style.transform = 'translateX(-50%)';
+    playerDiv.appendChild(nameLabel);
+
+    bottlePlayersContainer.appendChild(playerDiv);
+  });
+}
+
+function updateBottleUi(game) {
+  currentBottleGameState = game;
+
+  if (!socket) return;
+
+  const me = game.players.find(p => p.socketId === socket.id);
+  const isSpinner = game.spinnerId === socket.id;
+  const isTarget = game.targetId === socket.id;
+  const myTurn = game.players[game.turnIndex] && game.players[game.turnIndex].socketId === socket.id;
+
+  renderBottlePlayers(game.players, game.spinnerId, game.targetId, game.turnIndex);
+
+  if (me) {
+    if (bottleJoinBtn) bottleJoinBtn.style.display = 'none';
+    if (bottleLeaveBtn) bottleLeaveBtn.style.display = 'block';
+  } else {
+    if (bottleJoinBtn) bottleJoinBtn.style.display = 'block';
+    if (bottleLeaveBtn) bottleLeaveBtn.style.display = 'none';
+  }
+
+  const currentSpinnerName = game.players[game.turnIndex] ? game.players[game.turnIndex].nickname : '...';
+
+  if (game.state === 'waiting') {
+    if (bottleChoiceOverlay) bottleChoiceOverlay.style.display = 'none';
+    if (bottleTurnTimer) bottleTurnTimer.style.display = 'none';
+
+    if (myTurn) {
+      if (bottleStatusText) bottleStatusText.textContent = 'Ваш ход! Крутите бутылочку 🍾';
+      if (bottleSpinBtn) bottleSpinBtn.style.display = 'block';
+    } else {
+      if (bottleStatusText) bottleStatusText.textContent = `Ход игрока ${currentSpinnerName}...`;
+      if (bottleSpinBtn) bottleSpinBtn.style.display = 'none';
+    }
+  } else if (game.state === 'spinning') {
+    if (bottleChoiceOverlay) bottleChoiceOverlay.style.display = 'none';
+    if (bottleTurnTimer) bottleTurnTimer.style.display = 'none';
+    if (bottleSpinBtn) bottleSpinBtn.style.display = 'none';
+    if (bottleStatusText) bottleStatusText.textContent = 'Бутылочка крутится... 🍾';
+  } else if (game.state === 'kissing') {
+    if (bottleSpinBtn) bottleSpinBtn.style.display = 'none';
+    
+    const spinner = game.players.find(p => p.socketId === game.spinnerId);
+    const target = game.players.find(p => p.socketId === game.targetId);
+    const spinnerName = spinner ? spinner.nickname : 'Кто-то';
+    const targetName = target ? target.nickname : 'Кто-то';
+
+    if (bottleStatusText) bottleStatusText.textContent = `Выбор поцелуя: ${spinnerName} и ${targetName}`;
+
+    const hasMyChoice = game.choices[socket.id] !== undefined;
+
+    if ((isSpinner || isTarget) && !hasMyChoice) {
+      if (bottleChoiceOverlay) {
+        bottleChoiceOverlay.style.display = 'flex';
+        if (bottleChoiceTitle) {
+          bottleChoiceTitle.textContent = isSpinner ? `Поцеловать ${targetName}?` : `Поцеловать ${spinnerName}?`;
+        }
+      }
+      startChoiceCountdown(10);
+    } else {
+      if (bottleChoiceOverlay) bottleChoiceOverlay.style.display = 'none';
+    }
+  } else if (game.state === 'result') {
+    if (bottleChoiceOverlay) bottleChoiceOverlay.style.display = 'none';
+    if (bottleTurnTimer) bottleTurnTimer.style.display = 'none';
+    if (bottleSpinBtn) bottleSpinBtn.style.display = 'none';
+    if (bottleStatusText) bottleStatusText.textContent = 'Раунд завершен!';
+  }
+}
+
+function showKissSuccessAnimation() {
+  if (!bottleTable) return;
+  const rect = bottleTable.getBoundingClientRect();
+  const originX = rect.left + rect.width / 2;
+  const originY = rect.top + rect.height / 2;
+
+  for (let i = 0; i < 20; i++) {
+    setTimeout(() => {
+      const heart = document.createElement('div');
+      heart.textContent = ['💖', '❤️', '💕', '💋'][Math.floor(Math.random() * 4)];
+      heart.style.position = 'fixed';
+      heart.style.left = `${originX}px`;
+      heart.style.top = `${originY}px`;
+      heart.style.fontSize = `${16 + Math.random() * 16}px`;
+      heart.style.pointerEvents = 'none';
+      heart.style.zIndex = '9999';
+      heart.style.transition = 'all 1.5s cubic-bezier(0.25, 1, 0.5, 1)';
+      heart.style.transform = 'translate(-50%, -50%) scale(0.5)';
+      heart.style.opacity = '1';
+      document.body.appendChild(heart);
+
+      const angle = Math.random() * Math.PI * 2;
+      const distance = 50 + Math.random() * 120;
+      const tx = originX + Math.cos(angle) * distance;
+      const ty = originY - distance * 0.8;
+
+      setTimeout(() => {
+        heart.style.left = `${tx}px`;
+        heart.style.top = `${ty}px`;
+        heart.style.transform = `translate(-50%, -50%) scale(1.5) rotate(${(Math.random() - 0.5) * 60}deg)`;
+        heart.style.opacity = '0';
+      }, 50);
+
+      setTimeout(() => heart.remove(), 1600);
+    }, i * 60);
+  }
+}
+
+function showKissFailAnimation() {
+  if (!bottleTable) return;
+  const rect = bottleTable.getBoundingClientRect();
+  const originX = rect.left + rect.width / 2;
+  const originY = rect.top + rect.height / 2;
+
+  const crack = document.createElement('div');
+  crack.textContent = '💔';
+  crack.style.position = 'fixed';
+  crack.style.left = `${originX}px`;
+  crack.style.top = `${originY}px`;
+  crack.style.fontSize = '64px';
+  crack.style.pointerEvents = 'none';
+  crack.style.zIndex = '9999';
+  crack.style.transition = 'all 1.2s cubic-bezier(0.36, 0.07, 0.19, 0.97)';
+  crack.style.transform = 'translate(-50%, -50%) scale(0.1)';
+  crack.style.opacity = '0';
+  document.body.appendChild(crack);
+
+  setTimeout(() => {
+    crack.style.transform = 'translate(-50%, -50%) scale(1.2)';
+    crack.style.opacity = '1';
+  }, 50);
+
+  setTimeout(() => {
+    crack.style.transition = 'all 0.8s ease-in';
+    crack.style.top = `${originY + 120}px`;
+    crack.style.opacity = '0';
+    crack.style.transform = 'translate(-50%, -50%) scale(0.8) rotate(-20deg)';
+  }, 1000);
+
+  setTimeout(() => crack.remove(), 1900);
+}
+
+// Слушатели кнопок Бутылочки
+if (bottleJoinBtn) {
+  bottleJoinBtn.addEventListener('click', () => {
+    if (socket) socket.emit('bottle_join');
+  });
+}
+
+if (bottleLeaveBtn) {
+  bottleLeaveBtn.addEventListener('click', () => {
+    leaveBottleGameClient();
+  });
+}
+
+if (bottleSpinBtn) {
+  bottleSpinBtn.addEventListener('click', () => {
+    if (socket) socket.emit('bottle_spin');
+  });
+}
+
+if (bottleChoiceYesBtn) {
+  bottleChoiceYesBtn.addEventListener('click', async () => {
+    if (socket && aesKey) {
+      if (bottleChoiceOverlay) bottleChoiceOverlay.style.display = 'none';
+      if (bottleChoiceTimer) {
+        clearInterval(bottleChoiceTimer);
+        bottleChoiceTimer = null;
+      }
+      try {
+        const payload = await encryptText(JSON.stringify({ choice: true }), aesKey);
+        socket.emit('bottle_choice', payload);
+      } catch (e) {
+        console.error('Ошибка отправки выбора choice:true', e);
+      }
+    }
+  });
+}
+
+if (bottleChoiceNoBtn) {
+  bottleChoiceNoBtn.addEventListener('click', async () => {
+    if (socket && aesKey) {
+      if (bottleChoiceOverlay) bottleChoiceOverlay.style.display = 'none';
+      if (bottleChoiceTimer) {
+        clearInterval(bottleChoiceTimer);
+        bottleChoiceTimer = null;
+      }
+      try {
+        const payload = await encryptText(JSON.stringify({ choice: false }), aesKey);
+        socket.emit('bottle_choice', payload);
+      } catch (e) {
+        console.error('Ошибка отправки выбора choice:false', e);
+      }
+    }
+  });
+}

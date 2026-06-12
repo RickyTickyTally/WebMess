@@ -47,6 +47,9 @@ const roomHistories = new Map();
 // Хранилище режимов игры в комнатах (room -> mode)
 const roomModes = new Map();
 
+// Хранилище игр в Бутылочку (room -> game state)
+const bottleGames = new Map();
+
 // Хранилище приватизированных комнат (room -> { owner, theme })
 const ROOMS_FILE = path.join(__dirname, 'rooms.json');
 const ownedRooms = new Map();
@@ -146,6 +149,310 @@ function broadcastToRoom(room, eventName, data) {
   }
 }
 
+// --- ИГРА БУТЫЛОЧКА ---
+const BOT_NAMES = ['CyberBot', 'NeonStrike', 'GlitchHunter', 'NullPointer', 'ByteSlayer', 'AlphaBot', 'MegaSpin', 'PixelKiss', 'HeartBreaker', 'LoveByte'];
+const BOT_COLORS = ['#dc3545', '#6f42c1', '#fd7e14', '#198754', '#0d6efd', '#e91e63'];
+
+function padWithBots(game) {
+  while (game.players.length < 6) {
+    const botId = 'bot_' + Math.random().toString(36).substr(2, 9);
+    const name = BOT_NAMES[Math.floor(Math.random() * BOT_NAMES.length)] + '_' + Math.floor(Math.random() * 90 + 10);
+    const color = BOT_COLORS[Math.floor(Math.random() * BOT_COLORS.length)];
+    game.players.push({
+      socketId: botId,
+      nickname: name,
+      avatar: '',
+      badge: '🤖',
+      color: color,
+      isBot: true
+    });
+  }
+}
+
+function clearBottleGameTimers(game) {
+  if (game.timerId) {
+    clearTimeout(game.timerId);
+    game.timerId = null;
+  }
+  if (game.botTimeouts) {
+    game.botTimeouts.forEach(t => clearTimeout(t));
+    game.botTimeouts = [];
+  }
+}
+
+function resetBottleRound(game) {
+  clearBottleGameTimers(game);
+  game.state = 'waiting';
+  game.spinnerId = null;
+  game.targetId = null;
+  game.choices = {};
+  if (game.players.length > 0) {
+    game.turnIndex = (game.turnIndex + 1) % game.players.length;
+  } else {
+    game.turnIndex = 0;
+  }
+}
+
+function checkBotTurn(room) {
+  const game = bottleGames.get(room);
+  if (!game || game.state !== 'waiting' || game.players.length === 0) return;
+
+  const currentSpinner = game.players[game.turnIndex];
+  if (currentSpinner && currentSpinner.isBot) {
+    const delay = 2000 + Math.random() * 1500;
+    const timeout = setTimeout(() => {
+      spinBottle(room, currentSpinner.socketId);
+    }, delay);
+    game.botTimeouts.push(timeout);
+  }
+}
+
+function spinBottle(room, spinnerId) {
+  const game = bottleGames.get(room);
+  if (!game || game.state !== 'waiting') return;
+
+  const currentSpinner = game.players[game.turnIndex];
+  if (!currentSpinner || currentSpinner.socketId !== spinnerId) return;
+
+  clearBottleGameTimers(game);
+  game.state = 'spinning';
+  game.spinnerId = spinnerId;
+  game.choices = {};
+
+  const spinnerIndex = game.turnIndex;
+  let targetIndex = Math.floor(Math.random() * game.players.length);
+  while (targetIndex === spinnerIndex && game.players.length > 1) {
+    targetIndex = Math.floor(Math.random() * game.players.length);
+  }
+  const target = game.players[targetIndex];
+  game.targetId = target.socketId;
+
+  const targetAngle = (360 / game.players.length) * targetIndex;
+  const rotations = 4 + Math.floor(Math.random() * 3);
+  const totalAngle = 360 * rotations + targetAngle;
+
+  broadcastToRoom(room, 'bottle_spin_start', {
+    spinnerId: spinnerId,
+    targetId: target.socketId,
+    angle: totalAngle
+  });
+
+  game.timerId = setTimeout(() => {
+    startKissingState(room);
+  }, 4000);
+}
+
+function startKissingState(room) {
+  const game = bottleGames.get(room);
+  if (!game || game.state !== 'spinning') return;
+
+  game.state = 'kissing';
+  game.choices = {};
+
+  broadcastBottleState(room);
+
+  const spinner = game.players.find(p => p.socketId === game.spinnerId);
+  if (spinner && spinner.isBot) {
+    const delay = 1000 + Math.random() * 2000;
+    const timeout = setTimeout(() => {
+      submitBottleChoice(room, game.spinnerId, Math.random() < 0.7);
+    }, delay);
+    game.botTimeouts.push(timeout);
+  }
+
+  const target = game.players.find(p => p.socketId === game.targetId);
+  if (target && target.isBot) {
+    const delay = 1500 + Math.random() * 2000;
+    const timeout = setTimeout(() => {
+      submitBottleChoice(room, game.targetId, Math.random() < 0.7);
+    }, delay);
+    game.botTimeouts.push(timeout);
+  }
+
+  game.timerId = setTimeout(() => {
+    resolveKissingChoices(room);
+  }, 10000);
+}
+
+function submitBottleChoice(room, socketId, choice) {
+  const game = bottleGames.get(room);
+  if (!game || game.state !== 'kissing') return;
+
+  if (game.spinnerId !== socketId && game.targetId !== socketId) return;
+
+  game.choices[socketId] = !!choice;
+
+  const hasSpinnerChoice = game.choices[game.spinnerId] !== undefined;
+  const hasTargetChoice = game.choices[game.targetId] !== undefined;
+
+  if (hasSpinnerChoice && hasTargetChoice) {
+    resolveKissingChoices(room);
+  }
+}
+
+function resolveKissingChoices(room) {
+  const game = bottleGames.get(room);
+  if (!game || game.state !== 'kissing') return;
+
+  clearBottleGameTimers(game);
+  game.state = 'result';
+
+  const spinnerChoice = !!game.choices[game.spinnerId];
+  const targetChoice = !!game.choices[game.targetId];
+  const success = spinnerChoice && targetChoice;
+
+  const spinner = game.players.find(p => p.socketId === game.spinnerId);
+  const target = game.players.find(p => p.socketId === game.targetId);
+
+  const spinnerName = spinner ? spinner.nickname : 'Кто-то';
+  const targetName = target ? target.nickname : 'Кто-то';
+
+  broadcastToRoom(room, 'bottle_kiss_result', {
+    success: success,
+    spinnerId: game.spinnerId,
+    targetId: game.targetId
+  });
+
+  let chatText = '';
+  if (success) {
+    chatText = `💋 Ура! ${spinnerName} и ${targetName} поцеловались!`;
+  } else {
+    chatText = `💔 Увы, поцелуй между ${spinnerName} и ${targetName} не состоялся.`;
+  }
+
+  const systemMessage = {
+    author: '🍾 Бутылочка',
+    text: chatText,
+    time: new Date().toISOString(),
+    badge: '🍾',
+    color: success ? '#e91e63' : '#9e9e9e',
+    avatar: '',
+    telegram: '',
+    discord: ''
+  };
+
+  if (!roomHistories.has(room)) {
+    roomHistories.set(room, []);
+  }
+  const history = roomHistories.get(room);
+  history.push(systemMessage);
+  if (history.length > 50) history.shift();
+
+  broadcastToRoom(room, 'receive_message', systemMessage);
+
+  game.timerId = setTimeout(() => {
+    if (game.players.length > 0) {
+      game.turnIndex = (game.turnIndex + 1) % game.players.length;
+    } else {
+      game.turnIndex = 0;
+    }
+    game.state = 'waiting';
+    game.spinnerId = null;
+    game.targetId = null;
+    game.choices = {};
+
+    broadcastBottleState(room);
+    checkBotTurn(room);
+  }, 3000);
+}
+
+function broadcastBottleState(room) {
+  const game = bottleGames.get(room);
+  if (!game) return;
+
+  const choicesState = {};
+  if (game.choices[game.spinnerId] !== undefined) choicesState[game.spinnerId] = true;
+  if (game.choices[game.targetId] !== undefined) choicesState[game.targetId] = true;
+
+  broadcastToRoom(room, 'bottle_state', {
+    players: game.players,
+    state: game.state,
+    turnIndex: game.turnIndex,
+    spinnerId: game.spinnerId,
+    targetId: game.targetId,
+    choices: choicesState
+  });
+}
+
+function joinBottleGame(room, socketId, user) {
+  let game = bottleGames.get(room);
+  if (!game) {
+    game = {
+      players: [],
+      state: 'waiting',
+      turnIndex: 0,
+      spinnerId: null,
+      targetId: null,
+      choices: {},
+      timerId: null,
+      botTimeouts: []
+    };
+    bottleGames.set(room, game);
+  }
+
+  if (game.players.some(p => p.socketId === socketId)) {
+    return;
+  }
+
+  const newPlayer = {
+    socketId: socketId,
+    nickname: user.nickname,
+    avatar: user.avatar || '',
+    badge: user.badge || '',
+    color: user.color || '',
+    isBot: false
+  };
+
+  const botIndex = game.players.findIndex(p => p.isBot);
+  if (game.players.length >= 6 && botIndex !== -1) {
+    game.players[botIndex] = newPlayer;
+  } else {
+    game.players.push(newPlayer);
+  }
+
+  padWithBots(game);
+  broadcastBottleState(room);
+
+  if (game.state === 'waiting') {
+    checkBotTurn(room);
+  }
+}
+
+function leaveBottleGame(room, socketId) {
+  const game = bottleGames.get(room);
+  if (!game) return;
+
+  const index = game.players.findIndex(p => p.socketId === socketId);
+  if (index !== -1) {
+    game.players.splice(index, 1);
+
+    const humanCount = game.players.filter(p => !p.isBot).length;
+    if (humanCount === 0) {
+      clearBottleGameTimers(game);
+      bottleGames.delete(room);
+      return;
+    }
+
+    if (index < game.turnIndex) {
+      game.turnIndex--;
+    }
+    if (game.turnIndex >= game.players.length) {
+      game.turnIndex = 0;
+    }
+
+    if (game.spinnerId === socketId || game.targetId === socketId) {
+      resetBottleRound(game);
+    }
+
+    padWithBots(game);
+    broadcastBottleState(room);
+
+    if (game.state === 'waiting') {
+      checkBotTurn(room);
+    }
+  }
+}
+
 io.on('connection', (socket) => {
   console.log(`[+] Подключен сокет: ${socket.id}`);
 
@@ -229,6 +536,24 @@ io.on('connection', (socket) => {
       const history = roomHistories.get(room) || [];
       const encryptedHistory = encryptPayload(JSON.stringify(history), key);
       socket.emit('chat_history', encryptedHistory);
+
+      // Отправляем текущее состояние Бутылочки новому участнику
+      if (bottleGames.has(room)) {
+        const game = bottleGames.get(room);
+        const choicesState = {};
+        if (game.choices[game.spinnerId] !== undefined) choicesState[game.spinnerId] = true;
+        if (game.choices[game.targetId] !== undefined) choicesState[game.targetId] = true;
+
+        const encryptedBottleState = encryptPayload(JSON.stringify({
+          players: game.players,
+          state: game.state,
+          turnIndex: game.turnIndex,
+          spinnerId: game.spinnerId,
+          targetId: game.targetId,
+          choices: choicesState
+        }), key);
+        socket.emit('bottle_state', encryptedBottleState);
+      }
       
       // Отправляем настройки приватизированной комнаты (владелец, тема)
       if (ownedRooms.has(room)) {
@@ -509,6 +834,38 @@ io.on('connection', (socket) => {
     broadcastToRoom(user.room, 'game_player_left', { id: socket.id });
   });
 
+  // События игры «Бутылочка»
+  socket.on('bottle_join', () => {
+    const user = users.get(socket.id);
+    if (!user) return;
+    joinBottleGame(user.room, socket.id, user);
+  });
+
+  socket.on('bottle_leave', () => {
+    const user = users.get(socket.id);
+    if (!user) return;
+    leaveBottleGame(user.room, socket.id);
+  });
+
+  socket.on('bottle_spin', () => {
+    const user = users.get(socket.id);
+    if (!user) return;
+    spinBottle(user.room, socket.id);
+  });
+
+  socket.on('bottle_choice', (encryptedPayload) => {
+    const key = socketKeys.get(socket.id);
+    const user = users.get(socket.id);
+    if (!key || !user) return;
+    try {
+      const decryptedStr = decryptPayload(encryptedPayload, key);
+      const { choice } = JSON.parse(decryptedStr);
+      submitBottleChoice(user.room, socket.id, choice);
+    } catch (err) {
+      console.error('Ошибка расшифровки bottle_choice:', err);
+    }
+  });
+
   // Отключение пользователя
   socket.on('disconnect', () => {
     const user = users.get(socket.id);
@@ -518,6 +875,7 @@ io.on('connection', (socket) => {
 
       // Немедленно убираем игрока из игры
       broadcastToRoom(room, 'game_player_left', { id: socket.id });
+      leaveBottleGame(room, socket.id);
 
       const timeoutId = setTimeout(() => {
         users.delete(socket.id);
