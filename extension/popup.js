@@ -27,6 +27,13 @@ const profileInvisibleCheckbox = document.getElementById('profile-invisible-chec
 const saveProfileBtn = document.getElementById('save-profile-btn');
 const cancelProfileBtn = document.getElementById('cancel-profile-btn');
 
+const profileAvatarWrapper = document.getElementById('profile-avatar-wrapper');
+const profileAvatarPreview = document.getElementById('profile-avatar-preview');
+const profileAvatarPlaceholder = document.getElementById('profile-avatar-placeholder');
+const profileAvatarFileInput = document.getElementById('profile-avatar-file-input');
+const profileTelegramInput = document.getElementById('profile-telegram-input');
+const profileDiscordInput = document.getElementById('profile-discord-input');
+
 const usersListContainer = document.getElementById('users-list-container');
 const usersCountText = document.getElementById('users-count-text');
 const avatarListContainer = document.getElementById('avatar-list-container');
@@ -41,6 +48,7 @@ let socket = null;
 let currentUrl = '';
 let currentNickname = '';
 let aesKey = null; // Сессионный AES-GCM ключ
+let currentAvatar = ''; // Текущая аватарка в формате Base64
 
 // Переключение видимости блока премиум-настроек при авторизации
 premiumCheckbox.addEventListener('change', () => {
@@ -96,6 +104,30 @@ async function decryptText(payload, key) {
   );
   
   return new TextDecoder().decode(decryptedBuf);
+}
+
+// Хелпер: Масштабирование аватара с сохранением пропорций и сжатием в 64x64 JPEG
+function resizeImage(file, callback) {
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
+      const maxDim = 64;
+      canvas.width = maxDim;
+      canvas.height = maxDim;
+      // Обрезаем изображение по центру в квадрат
+      const size = Math.min(img.width, img.height);
+      const sx = (img.width - size) / 2;
+      const sy = (img.height - size) / 2;
+      ctx.drawImage(img, sx, sy, size, size, 0, 0, maxDim, maxDim);
+      const dataUrl = canvas.toDataURL('image/jpeg', 0.8);
+      callback(dataUrl);
+    };
+    img.src = e.target.result;
+  };
+  reader.readAsDataURL(file);
 }
 
 // Переключение видимости экранов
@@ -212,7 +244,7 @@ function renderMessages(messages) {
 
 // Вспомогательная функция отрисовки одного сообщения
 function appendMessageToUi(msg, autoScroll = true) {
-  const { author, text, time, badge, color } = msg;
+  const { author, text, time, badge, color, avatar, telegram, discord } = msg;
   const msgDiv = document.createElement('div');
   
   // Определяем, наше ли это сообщение
@@ -223,11 +255,38 @@ function appendMessageToUi(msg, autoScroll = true) {
   const timeStr = `${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`;
   const safeText = text.replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
-  const badgeHtml = badge ? `<span class="badge" style="margin-right: 4px; padding: 2px 4px; background: rgba(0,0,0,0.06); border-radius: 4px; font-size: 9px; font-weight: bold; color: inherit;">${badge}</span>` : '';
+  const avatarHtml = avatar ? `<img src="${avatar}" style="width: 16px; height: 16px; border-radius: 50%; object-fit: cover; margin-right: 2px; border: 1px solid rgba(0,0,0,0.1); flex-shrink: 0;">` : '';
+  const badgeHtml = badge ? `<span class="badge" style="margin-right: 4px; padding: 2px 4px; background: rgba(0,0,0,0.06); border-radius: 4px; font-size: 9px; font-weight: bold; color: inherit; display: inline-block;">${badge}</span>` : '';
   const nameStyle = color ? `style="color: ${color}; font-weight: bold;"` : '';
 
+  let socialHtml = '';
+  if (telegram || discord) {
+    socialHtml = `<span style="margin-left: 6px; display: inline-flex; align-items: center; gap: 4px; opacity: 0.6; vertical-align: middle;">`;
+    if (telegram) {
+      const tgUser = telegram.startsWith('@') ? telegram.slice(1) : telegram;
+      socialHtml += `
+        <a href="https://t.me/${tgUser}" target="_blank" title="Telegram: ${telegram}" style="color: inherit; display: inline-flex; align-items: center; text-decoration: none;">
+          <svg style="width: 12px; height: 12px; color: #0088cc;" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm4.64 6.8c-.15 1.58-.8 5.42-1.13 7.19-.14.75-.42 1-.68 1.03-.58.05-1.02-.38-1.58-.75-.88-.58-1.38-.94-2.23-1.5-.99-.65-.35-1.01.22-1.59.15-.15 2.71-2.48 2.76-2.69.01-.03.01-.14-.07-.2-.08-.06-.19-.04-.27-.02-.12.02-1.96 1.24-5.54 3.65-.52.36-.97.53-1.34.52-.42-.01-1.21-.24-1.8-.44-.72-.24-1.29-.37-1.24-.78.03-.21.32-.43.89-.65 3.48-1.51 5.8-2.52 6.96-3.01 3.31-1.4 4-.1.4 0z"/></svg>
+        </a>
+      `;
+    }
+    if (discord) {
+      socialHtml += `
+        <span class="discord-msg-btn" data-ds="${discord}" title="Discord: ${discord} (Нажмите для копирования)" style="cursor: pointer; display: inline-flex; align-items: center; color: #5865F2;">
+          <svg style="width: 12px; height: 12px;" viewBox="0 0 24 24" fill="currentColor"><path d="M20.317 4.37a19.791 19.791 0 0 0-4.885-1.515.074.074 0 0 0-.079.037c-.21.375-.444.864-.608 1.25a18.27 18.27 0 0 0-5.487 0 12.64 12.64 0 0 0-.617-1.25.077.077 0 0 0-.079-.037A19.736 19.736 0 0 0 3.677 4.37a.07.07 0 0 0-.032.027C.533 9.046-.32 13.58.099 18.057a.082.082 0 0 0 .031.057 19.9 19.9 0 0 0 5.993 3.03.078.078 0 0 0 .084-.028c.462-.63.874-1.295 1.226-1.994.021-.041.001-.09-.041-.106a13.094 13.094 0 0 1-1.873-.894.077.077 0 0 1-.008-.128c.126-.093.252-.19.372-.287a.075.075 0 0 1 .077-.011c3.92 1.793 8.18 1.793 12.061 0a.073.073 0 0 1 .078.009c.12.099.246.195.373.289a.077.077 0 0 1-.006.127 12.299 12.299 0 0 1-1.873.894.077.077 0 0 0-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 0 0 .084.028 19.839 19.839 0 0 0 6.002-3.03.077.077 0 0 0 .032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 0 0-.031-.03zM8.02 15.33c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.956-2.419 2.156-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.956 2.418-2.156 2.418zm7.975 0c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.955-2.419 2.156-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.946 2.418-2.156 2.418z"/></svg>
+        </span>
+      `;
+    }
+    socialHtml += `</span>`;
+  }
+
   msgDiv.innerHTML = `
-    <div class="author" ${nameStyle}>${badgeHtml}${isSelf ? 'Вы' : author}</div>
+    <div class="author" ${nameStyle}>
+      ${avatarHtml}
+      ${badgeHtml}
+      <span>${isSelf ? 'Вы' : author}</span>
+      ${socialHtml}
+    </div>
     <div class="text">${safeText}</div>
     <div class="time">${timeStr}</div>
   `;
@@ -263,12 +322,15 @@ function connectToChat(url, nickname) {
     }
   });
 
-  // Запрашиваем информацию о Premium настройках из хранилища
-  chrome.storage.local.get(['isPremium', 'premiumBadge', 'premiumColor', 'isInvisible'], (storageData) => {
+  // Запрашиваем информацию о Premium настройках и профиле из хранилища
+  chrome.storage.local.get(['isPremium', 'premiumBadge', 'premiumColor', 'isInvisible', 'avatar', 'telegram', 'discord'], (storageData) => {
     const isPremium = storageData.isPremium || false;
     const badge = isPremium ? (storageData.premiumBadge || '') : '';
     const color = isPremium ? (storageData.premiumColor || '') : '';
     const isInvisible = isPremium ? (storageData.isInvisible || false) : false;
+    const avatar = storageData.avatar || '';
+    const telegram = storageData.telegram || '';
+    const discord = storageData.discord || '';
 
     socket = io(SERVER_URL, { transports: ['websocket'] });
 
@@ -323,14 +385,17 @@ function connectToChat(url, nickname) {
 
             console.log('[DH] Шифрование согласовано с сервером.');
 
-            // 2. Входим в комнату чата, зашифровав URL, никнейм и Premium параметры
+            // 2. Входим в комнату чата, зашифровав URL, никнейм, Premium параметры и социальные данные
             const joinPayload = await encryptText(JSON.stringify({ 
               url, 
               nickname, 
               isPremium, 
               badge, 
               color, 
-              isInvisible 
+              isInvisible,
+              avatar,
+              telegram,
+              discord
             }), aesKey);
             socket.emit('join_room', joinPayload);
           } catch (err) {
@@ -365,14 +430,27 @@ function connectToChat(url, nickname) {
           const nickname = isObj ? u.nickname : u;
           const badge = isObj ? u.badge : null;
           const color = isObj ? u.color : null;
+          const avatar = isObj ? u.avatar : null;
 
-          const avatar = document.createElement('div');
-          avatar.className = 'user-avatar-mini';
-          avatar.textContent = badge || nickname.charAt(0).toUpperCase();
-          if (color) {
-            avatar.style.backgroundColor = color;
+          const avatarDiv = document.createElement('div');
+          avatarDiv.className = 'user-avatar-mini';
+          
+          if (avatar) {
+            const img = document.createElement('img');
+            img.src = avatar;
+            img.style.width = '100%';
+            img.style.height = '100%';
+            img.style.objectFit = 'cover';
+            img.style.borderRadius = '50%';
+            avatarDiv.appendChild(img);
+          } else {
+            avatarDiv.textContent = badge || nickname.charAt(0).toUpperCase();
+            if (color) {
+              avatarDiv.style.backgroundColor = color;
+            }
           }
-          avatarListContainer.appendChild(avatar);
+          
+          avatarListContainer.appendChild(avatarDiv);
         });
 
         // Если больше 5, добавляем индикатор "+N"
@@ -389,6 +467,9 @@ function connectToChat(url, nickname) {
           const nickname = isObj ? u.nickname : u;
           const badge = isObj ? u.badge : null;
           const color = isObj ? u.color : null;
+          const avatar = isObj ? u.avatar : null;
+          const telegram = isObj ? u.telegram : null;
+          const discord = isObj ? u.discord : null;
 
           const userRow = document.createElement('div');
           userRow.style.display = 'flex';
@@ -397,13 +478,24 @@ function connectToChat(url, nickname) {
           userRow.style.padding = '8px 0';
           userRow.style.borderBottom = '1px solid #f1f3f5';
 
-          const avatar = document.createElement('div');
-          avatar.className = 'user-avatar-mini';
-          avatar.style.border = 'none';
-          avatar.style.boxShadow = 'none';
-          avatar.textContent = badge || nickname.charAt(0).toUpperCase();
-          if (color) {
-            avatar.style.backgroundColor = color;
+          const avatarDiv = document.createElement('div');
+          avatarDiv.className = 'user-avatar-mini';
+          avatarDiv.style.border = 'none';
+          avatarDiv.style.boxShadow = 'none';
+          
+          if (avatar) {
+            const img = document.createElement('img');
+            img.src = avatar;
+            img.style.width = '100%';
+            img.style.height = '100%';
+            img.style.objectFit = 'cover';
+            img.style.borderRadius = '50%';
+            avatarDiv.appendChild(img);
+          } else {
+            avatarDiv.textContent = badge || nickname.charAt(0).toUpperCase();
+            if (color) {
+              avatarDiv.style.backgroundColor = color;
+            }
           }
 
           const nameSpan = document.createElement('span');
@@ -414,8 +506,61 @@ function connectToChat(url, nickname) {
             nameSpan.style.fontWeight = 'bold';
           }
 
-          userRow.appendChild(avatar);
+          userRow.appendChild(avatarDiv);
           userRow.appendChild(nameSpan);
+
+          // Кнопки соцсетей справа
+          const socialContainer = document.createElement('div');
+          socialContainer.style.display = 'flex';
+          socialContainer.style.alignItems = 'center';
+          socialContainer.style.gap = '8px';
+          socialContainer.style.marginLeft = 'auto';
+          socialContainer.style.flexShrink = '0';
+
+          if (telegram) {
+            const tgLink = document.createElement('a');
+            const tgUser = telegram.startsWith('@') ? telegram.slice(1) : telegram;
+            tgLink.href = `https://t.me/${tgUser}`;
+            tgLink.target = '_blank';
+            tgLink.title = `Telegram: ${telegram}`;
+            tgLink.style.display = 'flex';
+            tgLink.style.alignItems = 'center';
+            tgLink.style.color = '#0088cc';
+            tgLink.innerHTML = `
+              <svg style="width: 16px; height: 16px;" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm4.64 6.8c-.15 1.58-.8 5.42-1.13 7.19-.14.75-.42 1-.68 1.03-.58.05-1.02-.38-1.58-.75-.88-.58-1.38-.94-2.23-1.5-.99-.65-.35-1.01.22-1.59.15-.15 2.71-2.48 2.76-2.69.01-.03.01-.14-.07-.2-.08-.06-.19-.04-.27-.02-.12.02-1.96 1.24-5.54 3.65-.52.36-.97.53-1.34.52-.42-.01-1.21-.24-1.8-.44-.72-.24-1.29-.37-1.24-.78.03-.21.32-.43.89-.65 3.48-1.51 5.8-2.52 6.96-3.01 3.31-1.4 4-.1.4 0z"/>
+              </svg>
+            `;
+            tgLink.addEventListener('click', (e) => e.stopPropagation());
+            socialContainer.appendChild(tgLink);
+          }
+
+          if (discord) {
+            const dsBtn = document.createElement('button');
+            dsBtn.style.background = 'none';
+            dsBtn.style.border = 'none';
+            dsBtn.style.padding = '0';
+            dsBtn.style.cursor = 'pointer';
+            dsBtn.style.display = 'flex';
+            dsBtn.style.alignItems = 'center';
+            dsBtn.style.color = '#5865F2';
+            dsBtn.title = `Discord: ${discord} (Нажмите, чтобы скопировать)`;
+            dsBtn.innerHTML = `
+              <svg style="width: 16px; height: 16px;" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M20.317 4.37a19.791 19.791 0 0 0-4.885-1.515.074.074 0 0 0-.079.037c-.21.375-.444.864-.608 1.25a18.27 18.27 0 0 0-5.487 0 12.64 12.64 0 0 0-.617-1.25.077.077 0 0 0-.079-.037A19.736 19.736 0 0 0 3.677 4.37a.07.07 0 0 0-.032.027C.533 9.046-.32 13.58.099 18.057a.082.082 0 0 0 .031.057 19.9 19.9 0 0 0 5.993 3.03.078.078 0 0 0 .084-.028c.462-.63.874-1.295 1.226-1.994.021-.041.001-.09-.041-.106a13.094 13.094 0 0 1-1.873-.894.077.077 0 0 1-.008-.128c.126-.093.252-.19.372-.287a.075.075 0 0 1 .077-.011c3.92 1.793 8.18 1.793 12.061 0a.073.073 0 0 1 .078.009c.12.099.246.195.373.289a.077.077 0 0 1-.006.127 12.299 12.299 0 0 1-1.873.894.077.077 0 0 0-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 0 0 .084.028 19.839 19.839 0 0 0 6.002-3.03.077.077 0 0 0 .032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 0 0-.031-.03zM8.02 15.33c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.956-2.419 2.156-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.956 2.418-2.156 2.418zm7.975 0c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.955-2.419 2.156-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.946 2.418-2.156 2.418z"/>
+              </svg>
+            `;
+            dsBtn.addEventListener('click', (e) => {
+              e.stopPropagation();
+              navigator.clipboard.writeText(discord);
+              const originalTitle = dsBtn.title;
+              dsBtn.title = 'Скопировано!';
+              setTimeout(() => { dsBtn.title = originalTitle; }, 2000);
+            });
+            socialContainer.appendChild(dsBtn);
+          }
+
+          userRow.appendChild(socialContainer);
           modalUsersList.appendChild(userRow);
         });
       } catch (err) {
@@ -505,16 +650,46 @@ saveNicknameBtn.addEventListener('click', () => {
 
 // Открытие экрана профиля
 profileBtn.addEventListener('click', () => {
-  chrome.storage.local.get(['nickname', 'isPremium', 'premiumBadge', 'premiumColor', 'isInvisible'], (result) => {
+  chrome.storage.local.get(['nickname', 'isPremium', 'premiumBadge', 'premiumColor', 'isInvisible', 'avatar', 'telegram', 'discord'], (result) => {
     profileNicknameInput.value = result.nickname || '';
     profilePremiumCheckbox.checked = result.isPremium || false;
     profilePremiumOptions.style.display = profilePremiumCheckbox.checked ? 'flex' : 'none';
     profilePremiumBadge.value = result.premiumBadge || '';
     profilePremiumColor.value = result.premiumColor || '';
     profileInvisibleCheckbox.checked = result.isInvisible || false;
+    profileTelegramInput.value = result.telegram || '';
+    profileDiscordInput.value = result.discord || '';
+    
+    currentAvatar = result.avatar || '';
+    if (currentAvatar) {
+      profileAvatarPreview.src = currentAvatar;
+      profileAvatarPreview.style.display = 'block';
+      profileAvatarPlaceholder.style.display = 'none';
+    } else {
+      profileAvatarPreview.style.display = 'none';
+      profileAvatarPlaceholder.style.display = 'flex';
+    }
     
     showScreen('profile');
   });
+});
+
+// Клик по аватарке открывает диалог выбора файла
+profileAvatarWrapper.addEventListener('click', () => {
+  profileAvatarFileInput.click();
+});
+
+// Обработка выбора файла аватара с масштабированием
+profileAvatarFileInput.addEventListener('change', (e) => {
+  const file = e.target.files[0];
+  if (file) {
+    resizeImage(file, (base64Str) => {
+      currentAvatar = base64Str;
+      profileAvatarPreview.src = base64Str;
+      profileAvatarPreview.style.display = 'block';
+      profileAvatarPlaceholder.style.display = 'none';
+    });
+  }
 });
 
 // Сохранение изменений в профиле
@@ -525,13 +700,18 @@ saveProfileBtn.addEventListener('click', () => {
     const badge = isPremium ? profilePremiumBadge.value : '';
     const color = isPremium ? profilePremiumColor.value : '';
     const isInvisible = isPremium ? profileInvisibleCheckbox.checked : false;
+    const telegram = profileTelegramInput.value.trim();
+    const discord = profileDiscordInput.value.trim();
 
     chrome.storage.local.set({ 
       nickname,
       isPremium,
       premiumBadge: badge,
       premiumColor: color,
-      isInvisible
+      isInvisible,
+      avatar: currentAvatar,
+      telegram,
+      discord
     }, () => {
       currentNickname = nickname;
       // Переподключаемся к чату для обновления данных сессии
@@ -566,6 +746,20 @@ usersModal.addEventListener('click', (e) => {
 sendBtn.addEventListener('click', sendMessage);
 messageInput.addEventListener('keypress', (e) => {
   if (e.key === 'Enter') sendMessage();
+});
+
+// Копирование Discord по клику на иконку в сообщении
+messagesContainer.addEventListener('click', (e) => {
+  const dsBtn = e.target.closest('.discord-msg-btn');
+  if (dsBtn) {
+    const discord = dsBtn.getAttribute('data-ds');
+    if (discord) {
+      navigator.clipboard.writeText(discord);
+      const originalTitle = dsBtn.title;
+      dsBtn.title = 'Скопировано!';
+      setTimeout(() => { dsBtn.title = originalTitle; }, 2000);
+    }
+  }
 });
 
 // --- ТОЧКА ВХОДА ---

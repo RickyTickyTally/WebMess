@@ -141,7 +141,7 @@ io.on('connection', (socket) => {
 
     try {
       const decryptedStr = decryptPayload(encryptedPayload, key);
-      const { url, nickname, isPremium, badge, color, isInvisible } = JSON.parse(decryptedStr);
+      const { url, nickname, isPremium, badge, color, isInvisible, avatar, telegram, discord } = JSON.parse(decryptedStr);
 
       const room = url.split('?')[0].split('#')[0].replace(/\/$/, '');
       
@@ -166,7 +166,10 @@ io.on('connection', (socket) => {
               .map(u => ({
                 nickname: u.nickname,
                 badge: u.badge || null,
-                color: u.color || null
+                color: u.color || null,
+                avatar: u.avatar || null,
+                telegram: u.telegram || null,
+                discord: u.discord || null
               }));
             broadcastToRoom(oldRoom, 'update_users', oldUsersInRoom);
           }
@@ -180,7 +183,10 @@ io.on('connection', (socket) => {
         isPremium: isPremium || false,
         badge: badge || '',
         color: color || '',
-        isInvisible: isInvisible || false
+        isInvisible: isInvisible || false,
+        avatar: avatar || '',
+        telegram: telegram || '',
+        discord: discord || ''
       });
       socket.join(room);
 
@@ -192,7 +198,10 @@ io.on('connection', (socket) => {
         .map(u => ({
           nickname: u.nickname,
           badge: u.badge || null,
-          color: u.color || null
+          color: u.color || null,
+          avatar: u.avatar || null,
+          telegram: u.telegram || null,
+          discord: u.discord || null
         }));
 
       // Рассылаем обновленный список пользователей (каждому со своим ключом)
@@ -224,7 +233,10 @@ io.on('connection', (socket) => {
         text: processedText,
         time: new Date().toISOString(),
         badge: user.badge || null,
-        color: user.color || null
+        color: user.color || null,
+        avatar: user.avatar || null,
+        telegram: user.telegram || null,
+        discord: user.discord || null
       };
 
       console.log(`[MSG] Сообщение от ${user.nickname} в комнате ${user.room}`);
@@ -266,7 +278,10 @@ io.on('connection', (socket) => {
           .map(u => ({
             nickname: u.nickname,
             badge: u.badge || null,
-            color: u.color || null
+            color: u.color || null,
+            avatar: u.avatar || null,
+            telegram: u.telegram || null,
+            discord: u.discord || null
           }));
 
         broadcastToRoom(room, 'update_users', usersInRoom);
