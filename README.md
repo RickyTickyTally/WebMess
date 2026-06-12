@@ -1,3 +1,12 @@
+---
+title: WebMess
+emoji: 💬
+colorFrom: blue
+colorTo: indigo
+sdk: docker
+app_port: 7860
+---
+
 # Site Chat MVP
 
 Реалтайм-чат для пользователей, находящихся на одном и том же URL.
