@@ -18,6 +18,7 @@ const invisibleCheckbox = document.getElementById('invisible-checkbox');
 
 // Элементы профиля
 const profileBtn = document.getElementById('profile-btn');
+const refreshChatBtn = document.getElementById('refresh-chat-btn');
 const profileNicknameInput = document.getElementById('profile-nickname-input');
 const profilePremiumCheckbox = document.getElementById('profile-premium-checkbox');
 const profilePremiumOptions = document.getElementById('profile-premium-options');
@@ -245,17 +246,26 @@ function renderMessages(messages) {
 // Вспомогательная функция отрисовки одного сообщения
 function appendMessageToUi(msg, autoScroll = true) {
   const { author, text, time, badge, color, avatar, telegram, discord } = msg;
-  const msgDiv = document.createElement('div');
+  const msgRow = document.createElement('div');
   
   // Определяем, наше ли это сообщение
   const isSelf = author === currentNickname;
-  msgDiv.className = `message ${isSelf ? 'self' : 'other'}`;
+  msgRow.className = `message-row ${isSelf ? 'self' : 'other'}`;
   
+  // Аватарка отправителя сообщения снаружи пузыря
+  let avatarOutsideHtml = '';
+  if (avatar) {
+    avatarOutsideHtml = `<img src="${avatar}" class="message-avatar-outside" title="${author}">`;
+  } else {
+    const fallbackChar = badge || author.charAt(0).toUpperCase();
+    const bgStyle = color ? `background-color: ${color};` : '';
+    avatarOutsideHtml = `<div class="message-avatar-outside" style="${bgStyle}" title="${author}">${fallbackChar}</div>`;
+  }
+
   const date = new Date(time);
   const timeStr = `${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`;
   const safeText = text.replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
-  const avatarHtml = avatar ? `<img src="${avatar}" style="width: 16px; height: 16px; border-radius: 50%; object-fit: cover; margin-right: 2px; border: 1px solid rgba(0,0,0,0.1); flex-shrink: 0;">` : '';
   const badgeHtml = badge ? `<span class="badge" style="margin-right: 4px; padding: 2px 4px; background: rgba(0,0,0,0.06); border-radius: 4px; font-size: 9px; font-weight: bold; color: inherit; display: inline-block;">${badge}</span>` : '';
   const nameStyle = color ? `style="color: ${color}; font-weight: bold;"` : '';
 
@@ -280,17 +290,19 @@ function appendMessageToUi(msg, autoScroll = true) {
     socialHtml += `</span>`;
   }
 
-  msgDiv.innerHTML = `
-    <div class="author" ${nameStyle}>
-      ${avatarHtml}
-      ${badgeHtml}
-      <span>${isSelf ? 'Вы' : author}</span>
-      ${socialHtml}
+  msgRow.innerHTML = `
+    ${avatarOutsideHtml}
+    <div class="message ${isSelf ? 'self' : 'other'}">
+      <div class="author" ${nameStyle}>
+        ${badgeHtml}
+        <span>${isSelf ? 'Вы' : author}</span>
+        ${socialHtml}
+      </div>
+      <div class="text">${safeText}</div>
+      <div class="time">${timeStr}</div>
     </div>
-    <div class="text">${safeText}</div>
-    <div class="time">${timeStr}</div>
   `;
-  messagesContainer.appendChild(msgDiv);
+  messagesContainer.appendChild(msgRow);
   
   if (autoScroll) {
     messagesContainer.scrollTop = messagesContainer.scrollHeight;
@@ -645,6 +657,18 @@ saveNicknameBtn.addEventListener('click', () => {
       currentNickname = nickname;
       connectToChat(currentUrl, currentNickname);
     });
+  }
+});
+
+// Обновление соединения с чатом
+refreshChatBtn.addEventListener('click', () => {
+  refreshChatBtn.style.transform = 'rotate(360deg)';
+  setTimeout(() => {
+    refreshChatBtn.style.transform = 'rotate(0deg)';
+  }, 300);
+
+  if (currentUrl) {
+    switchChatRoom(currentUrl);
   }
 });
 
