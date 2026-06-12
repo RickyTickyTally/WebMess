@@ -1,0 +1,196 @@
+const express = require('express');
+const http = require('http');
+const { Server } = require('socket.io');
+const cors = require('cors');
+const crypto = require('crypto');
+
+const app = express();
+app.use(cors());
+
+const server = http.createServer(app);
+const io = new Server(server, {
+  cors: {
+    origin: "*",
+    methods: ["GET", "POST"]
+  }
+});
+
+// Хранилище сессионных AES-ключей (socket.id -> Buffer)
+const socketKeys = new Map();
+
+// Хранилище информации о пользователях (socket.id -> { nickname, room })
+const users = new Map();
+
+// Хранилище истории сообщений в комнатах (room -> Array)
+const roomHistories = new Map();
+
+// Хелпер: Шифрование AES-256-GCM (совместимое с Web Crypto API)
+function encryptPayload(text, key) {
+  const iv = crypto.randomBytes(12); // 96-битный IV
+  const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
+  let encrypted = cipher.update(text, 'utf8');
+  // Объединяем шифротекст и 16-байтный tag в один буфер (Web Crypto API ожидает tag в конце шифротекста)
+  encrypted = Buffer.concat([encrypted, cipher.final(), cipher.getAuthTag()]);
+  
+  return {
+    iv: iv.toString('hex'),
+    ciphertext: encrypted.toString('hex')
+  };
+}
+
+// Хелпер: Дешифрование AES-256-GCM (совместимое с Web Crypto API)
+function decryptPayload(payload, key) {
+  const { iv, ciphertext } = payload;
+  const ivBuffer = Buffer.from(iv, 'hex');
+  const combined = Buffer.from(ciphertext, 'hex');
+  
+  // Последние 16 байт — это тег аутентификации
+  const tag = combined.subarray(combined.length - 16);
+  const encryptedData = combined.subarray(0, combined.length - 16);
+  
+  const decipher = crypto.createDecipheriv('aes-256-gcm', key, ivBuffer);
+  decipher.setAuthTag(tag);
+  let decrypted = decipher.update(encryptedData, 'hex', 'utf8');
+  decrypted += decipher.final('utf8');
+  return decrypted;
+}
+
+// Функция отправки персонально зашифрованного сообщения участникам комнаты
+function broadcastToRoom(room, eventName, data) {
+  const socketsInRoom = io.sockets.adapter.rooms.get(room);
+  if (!socketsInRoom) return;
+
+  for (const socketId of socketsInRoom) {
+    const socket = io.sockets.sockets.get(socketId);
+    const key = socketKeys.get(socketId);
+    if (socket && key) {
+      try {
+        const encrypted = encryptPayload(JSON.stringify(data), key);
+        socket.emit(eventName, encrypted);
+      } catch (err) {
+        console.error(`Ошибка шифрования для сокета ${socketId}:`, err);
+      }
+    }
+  }
+}
+
+io.on('connection', (socket) => {
+  console.log(`[+] Подключен сокет: ${socket.id}`);
+
+  // Шаг 1: Рукопожатие Диффи-Хеллмана (ECDH)
+  socket.on('dh_handshake_start', ({ clientPublicKeyHex }) => {
+    try {
+      const serverEcdh = crypto.createECDH('prime256v1');
+      serverEcdh.generateKeys();
+      const serverPublicKey = serverEcdh.getPublicKey('hex');
+
+      // Вычисляем общий секрет и хэшируем его для получения 32-байтного AES-ключа
+      const sharedSecret = serverEcdh.computeSecret(clientPublicKeyHex, 'hex');
+      const aesKey = crypto.createHash('sha256').update(sharedSecret).digest();
+
+      // Сохраняем сессионный ключ
+      socketKeys.set(socket.id, aesKey);
+      
+      console.log(`[DH] Сессионный ключ для сокета ${socket.id} успешно создан.`);
+
+      // Отправляем публичный ключ сервера клиенту
+      socket.emit('dh_handshake_response', { serverPublicKeyHex: serverPublicKey });
+    } catch (err) {
+      console.error(`Ошибка рукопожатия ECDH для сокета ${socket.id}:`, err);
+      socket.disconnect();
+    }
+  });
+
+  // Шаг 2: Вход в комнату (данные зашифрованы AES-GCM)
+  socket.on('join_room', (encryptedPayload) => {
+    const key = socketKeys.get(socket.id);
+    if (!key) {
+      console.error(`Попытка join_room без ключа шифрования: ${socket.id}`);
+      return;
+    }
+
+    try {
+      const decryptedStr = decryptPayload(encryptedPayload, key);
+      const { url, nickname } = JSON.parse(decryptedStr);
+
+      const room = url.split('?')[0].split('#')[0].replace(/\/$/, '');
+      
+      users.set(socket.id, { nickname, room });
+      socket.join(room);
+
+      console.log(`[JOIN] ${nickname} присоеденился к комнате: ${room}`);
+
+      const usersInRoom = Array.from(users.values())
+        .filter(u => u.room === room)
+        .map(u => u.nickname);
+
+      // Рассылаем обновленный список пользователей (каждому со своим ключом)
+      broadcastToRoom(room, 'update_users', usersInRoom);
+
+      // Отправляем историю сообщений новому участнику
+      const history = roomHistories.get(room) || [];
+      const encryptedHistory = encryptPayload(JSON.stringify(history), key);
+      socket.emit('chat_history', encryptedHistory);
+    } catch (err) {
+      console.error(`Ошибка join_room для сокета ${socket.id}:`, err);
+    }
+  });
+
+  // Шаг 3: Передача зашифрованных сообщений
+  socket.on('send_message', (encryptedPayload) => {
+    const key = socketKeys.get(socket.id);
+    const user = users.get(socket.id);
+    if (!key || !user) return;
+
+    try {
+      const text = decryptPayload(encryptedPayload, key);
+      const messageData = {
+        author: user.nickname,
+        text: text,
+        time: new Date().toISOString()
+      };
+
+      console.log(`[MSG] Сообщение от ${user.nickname} в комнате ${user.room}`);
+
+      // Сохраняем сообщение в историю комнаты
+      if (!roomHistories.has(user.room)) {
+        roomHistories.set(user.room, []);
+      }
+      const history = roomHistories.get(user.room);
+      history.push(messageData);
+      if (history.length > 50) {
+        history.shift(); // Храним только последние 50 сообщений
+      }
+      
+      // Рассылаем сообщение (каждому со своим ключом)
+      broadcastToRoom(user.room, 'receive_message', messageData);
+    } catch (err) {
+      console.error(`Ошибка обработки сообщения от сокета ${socket.id}:`, err);
+    }
+  });
+
+  // Отключение пользователя
+  socket.on('disconnect', () => {
+    const user = users.get(socket.id);
+    socketKeys.delete(socket.id);
+    
+    if (user) {
+      const { room, nickname } = user;
+      users.delete(socket.id);
+      socket.leave(room);
+      
+      console.log(`[-] ${nickname} отключился от комнаты: ${room}`);
+
+      const usersInRoom = Array.from(users.values())
+        .filter(u => u.room === room)
+        .map(u => u.nickname);
+
+      broadcastToRoom(room, 'update_users', usersInRoom);
+    }
+  });
+});
+
+const PORT = process.env.PORT || 3000;
+server.listen(PORT, () => {
+  console.log(`Крипто-защищенный WebSocket-сервер запущен на порту ${PORT}`);
+});
