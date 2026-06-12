@@ -57,6 +57,9 @@ const roomModes = new Map();
 // Хранилище игр в Бутылочку (room -> game state)
 const bottleGames = new Map();
 
+// Хранилище истории сообщений чата в Бутылочке
+const bottleChatHistory = [];
+
 
 
 // Хранилище приватизированных комнат (room -> { owner, theme })
@@ -631,6 +634,10 @@ io.on('connection', (socket) => {
       const encryptedHistory = encryptPayload(JSON.stringify(history), key);
       socket.emit('chat_history', encryptedHistory);
 
+      // Отправляем текущую историю локального чата Бутылочки новому участнику
+      const encryptedBottleChatHistory = encryptPayload(JSON.stringify(bottleChatHistory), key);
+      socket.emit('bottle_chat_history', encryptedBottleChatHistory);
+
       // Отправляем текущее состояние Бутылочки новому участнику из глобальной комнаты
       if (bottleGames.has(GLOBAL_GAMES_ROOM)) {
         const game = bottleGames.get(GLOBAL_GAMES_ROOM);
@@ -1035,6 +1042,33 @@ io.on('connection', (socket) => {
       submitBottleChoice(GLOBAL_GAMES_ROOM, socket.id, choice);
     } catch (err) {
       console.error('Ошибка расшифровки bottle_choice:', err);
+    }
+  });
+
+  socket.on('bottle_chat_message', (encryptedPayload) => {
+    const key = socketKeys.get(socket.id);
+    const user = users.get(socket.id);
+    if (!key || !user) return;
+    try {
+      const text = decryptPayload(encryptedPayload, key);
+      const messageData = {
+        author: user.nickname,
+        text: text,
+        time: new Date().toISOString(),
+        badge: user.badge || null,
+        color: user.color || null,
+        avatar: user.avatar || null,
+        avatarFrame: user.avatarFrame || null
+      };
+
+      bottleChatHistory.push(messageData);
+      if (bottleChatHistory.length > 30) {
+        bottleChatHistory.shift();
+      }
+
+      broadcastToRoom(GLOBAL_GAMES_ROOM, 'bottle_chat_message', messageData);
+    } catch (err) {
+      console.error('Ошибка обработки bottle_chat_message:', err);
     }
   });
 

@@ -1124,15 +1124,23 @@
       </div>
 
       <!-- Панель Бутылочки -->
-      <div id="games-panel-bottle" style="display: none; flex: 1; flex-direction: column; padding: 12px; gap: 12px; box-sizing: border-box; height: 100%; position: relative;">
+      <div id="games-panel-bottle" style="display: none; flex: 1; flex-direction: column; padding: 12px; gap: 12px; box-sizing: border-box; height: 100%; position: relative; overflow: hidden;">
         <!-- Заголовок/статус игры -->
-        <div style="background: var(--sidebar-bg); border: 1px solid var(--border-color); border-radius: 8px; padding: 8px 12px; box-sizing: border-box; display: flex; flex-direction: column; align-items: center; gap: 4px;">
-          <div id="bottle-status-text" style="font-size: 12px; font-weight: bold; text-align: center; color: var(--text-color);">Загрузка игры...</div>
-          <div id="bottle-turn-timer" style="font-size: 10px; color: var(--text-muted); display: none;">Осталось времени: <span id="bottle-timer-value" style="font-weight: bold; color: var(--accent-color);">10</span> сек</div>
+        <div style="background: var(--sidebar-bg); border: 1px solid var(--border-color); border-radius: 8px; padding: 6px 12px; box-sizing: border-box; display: flex; justify-content: space-between; align-items: center; gap: 8px; position: relative;">
+          <div style="flex: 1; display: flex; flex-direction: column; align-items: center;">
+            <div id="bottle-status-text" style="font-size: 12px; font-weight: bold; text-align: center; color: var(--text-color);">Загрузка игры...</div>
+            <div id="bottle-turn-timer" style="font-size: 10px; color: var(--text-muted); display: none;">Осталось времени: <span id="bottle-timer-value" style="font-weight: bold; color: var(--accent-color);">10</span> сек</div>
+          </div>
+          <button id="bottle-chat-toggle-btn" style="background: none; border: none; color: var(--text-color); cursor: pointer; padding: 4px; display: flex; align-items: center; justify-content: center; position: relative; outline: none; transition: opacity 0.2s;" title="Чат стола">
+            <svg style="width: 18px; height: 18px;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+            </svg>
+            <span id="bottle-chat-badge" style="position: absolute; top: -2px; right: -2px; width: 8px; height: 8px; background: #dc3545; border-radius: 50%; display: none;"></span>
+          </button>
         </div>
 
         <!-- Игровая зона с кругом участников и столом -->
-        <div style="flex: 1; display: flex; align-items: center; justify-content: center; position: relative; min-height: 200px;">
+        <div style="flex: 1; display: flex; align-items: center; justify-content: center; position: relative; min-height: 250px;">
           <!-- Стол в центре -->
           <div id="bottle-table" style="width: 140px; height: 140px; border-radius: 50%; background: radial-gradient(circle, var(--tab-active-bg) 0%, var(--input-bg) 70%, var(--border-color) 100%); border: 4px solid var(--border-color); box-shadow: 0 4px 10px rgba(0,0,0,0.15); display: flex; align-items: center; justify-content: center; position: relative; z-index: 1;">
             <!-- Бутылочка в центре стола -->
@@ -1167,6 +1175,24 @@
           <button id="bottle-leave-btn" style="flex: 1; padding: 8px; border-radius: 6px; border: 1px solid var(--border-color); font-size: 11px; cursor: pointer; font-weight: bold; background: var(--input-bg); color: var(--text-color); display: none;">Встать из-за стола 🚶</button>
           <button id="bottle-spin-btn" style="flex: 1.2; padding: 8px; border-radius: 6px; border: none; font-size: 11px; cursor: pointer; font-weight: bold; background: #e91e63; color: white; display: none;">Крутить бутылочку 🍾</button>
           <button id="bottle-spin-anytime-btn" style="flex: 1.2; padding: 8px; border-radius: 6px; border: none; font-size: 11px; cursor: pointer; font-weight: bold; background: #ff9f1c; color: white; display: none;">Купить ход 🍾 (30 🪙)</button>
+        </div>
+
+        <!-- Локальный чат бутылочки (сбоку) -->
+        <div id="bottle-local-chat-panel" style="position: absolute; top: 0; right: -240px; width: 220px; height: 100%; background: var(--sidebar-bg); border-left: 1px solid var(--border-color); box-shadow: -4px 0 15px rgba(0,0,0,0.15); transition: right 0.3s cubic-bezier(0.1, 0.9, 0.2, 1); display: flex; flex-direction: column; z-index: 20; box-sizing: border-box; border-top-right-radius: 8px; border-bottom-right-radius: 8px;">
+          <!-- Шапка чата -->
+          <div style="padding: 10px 12px; background: var(--sidebar-header-bg); border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; border-top-right-radius: 8px;">
+            <span style="font-size: 11px; font-weight: bold; color: var(--text-color);">💬 Чат стола</span>
+            <button id="bottle-chat-close-btn" style="background: none; border: none; font-size: 16px; font-weight: bold; cursor: pointer; color: var(--text-muted); padding: 0 4px; line-height: 1;">&times;</button>
+          </div>
+          <!-- Сообщения -->
+          <div id="bottle-chat-messages" style="flex: 1; overflow-y: auto; padding: 10px; display: flex; flex-direction: column; gap: 6px; box-sizing: border-box;">
+            <!-- Сообщения будут рендериться динамически -->
+          </div>
+          <!-- Ввод -->
+          <div style="padding: 8px; border-top: 1px solid var(--border-color); display: flex; gap: 6px; box-sizing: border-box; background: var(--sidebar-header-bg); border-bottom-right-radius: 8px;">
+            <input type="text" id="bottle-chat-input" placeholder="Сообщение..." style="flex: 1; padding: 6px 8px; font-size: 11px; border-radius: 6px; border: 1px solid var(--border-color); background: var(--input-bg); color: var(--text-color); outline: none;">
+            <button id="bottle-chat-send-btn" style="padding: 6px 8px; font-size: 11px; font-weight: bold; background: var(--button-bg); color: var(--button-text); border: none; border-radius: 6px; cursor: pointer;">Отправить</button>
+          </div>
         </div>
       </div>
 

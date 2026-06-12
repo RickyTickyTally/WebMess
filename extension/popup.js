@@ -78,6 +78,15 @@ const bottleLeaveBtn = document.getElementById('bottle-leave-btn');
 const bottleSpinBtn = document.getElementById('bottle-spin-btn');
 const bottleSpinAnytimeBtn = document.getElementById('bottle-spin-anytime-btn');
 
+// Элементы локального чата Бутылочки
+const bottleChatToggleBtn = document.getElementById('bottle-chat-toggle-btn');
+const bottleChatBadge = document.getElementById('bottle-chat-badge');
+const bottleLocalChatPanel = document.getElementById('bottle-local-chat-panel');
+const bottleChatCloseBtn = document.getElementById('bottle-chat-close-btn');
+const bottleChatMessages = document.getElementById('bottle-chat-messages');
+const bottleChatInput = document.getElementById('bottle-chat-input');
+const bottleChatSendBtn = document.getElementById('bottle-chat-send-btn');
+
 let bottleChoiceTimer = null;
 
 // Элементы Магазина и Заказа Музыки
@@ -977,6 +986,27 @@ function connectToChat(url, nickname) {
       }
     });
 
+    socket.on('bottle_chat_history', async (encryptedPayload) => {
+      try {
+        if (!aesKey) return;
+        const decryptedStr = await decryptText(encryptedPayload, aesKey);
+        const history = JSON.parse(decryptedStr);
+        renderBottleMessages(history);
+      } catch (err) {
+        console.warn('Ошибка расшифровки bottle_chat_history:', err.message || err);
+      }
+    });
+
+    socket.on('bottle_chat_message', async (encryptedPayload) => {
+      try {
+        if (!aesKey) return;
+        const decryptedStr = await decryptText(encryptedPayload, aesKey);
+        const messageData = JSON.parse(decryptedStr);
+        appendBottleMessageToUi(messageData);
+      } catch (err) {
+        console.warn('Ошибка расшифровки bottle_chat_message:', err.message || err);
+      }
+    });
 
   });
 }
@@ -2713,8 +2743,8 @@ function renderBottlePlayers(players, spinnerId, targetId, turnIndex) {
 
   const rect = bottlePlayersContainer.getBoundingClientRect();
   const centerX = rect.width > 0 ? rect.width / 2 : 185;
-  const centerY = rect.height > 0 ? rect.height / 2 : 100;
-  const radius = 72; // Радиус рассадки от центра стола
+  const centerY = rect.height > 0 ? rect.height / 2 : 125; // Смещаем центр вертикально для новой высоты 250px
+  const radius = 95; // Увеличенный радиус рассадки от центра стола (для 50px аватарок)
 
   const N = players.length;
   players.forEach((player, i) => {
@@ -2725,10 +2755,10 @@ function renderBottlePlayers(players, spinnerId, targetId, turnIndex) {
 
     const playerDiv = document.createElement('div');
     playerDiv.style.position = 'absolute';
-    playerDiv.style.left = `${x - 20}px`; // Размер аватарки 40px -> смещение на 20px
-    playerDiv.style.top = `${y - 20}px`;
-    playerDiv.style.width = '40px';
-    playerDiv.style.height = '40px';
+    playerDiv.style.left = `${x - 25}px`; // Размер аватарки 50px -> смещение на 25px
+    playerDiv.style.top = `${y - 25}px`;
+    playerDiv.style.width = '50px';
+    playerDiv.style.height = '50px';
     playerDiv.style.borderRadius = '50%';
     playerDiv.style.border = '2px solid var(--border-color)';
     playerDiv.style.backgroundColor = 'var(--input-bg)';
@@ -2765,7 +2795,7 @@ function renderBottlePlayers(players, spinnerId, targetId, turnIndex) {
     } else {
       const char = player.badge || player.nickname.charAt(0).toUpperCase();
       playerDiv.textContent = char;
-      playerDiv.style.fontSize = '12px';
+      playerDiv.style.fontSize = '14px'; // Увеличенный размер шрифта значка
       playerDiv.style.fontWeight = 'bold';
       if (player.color) {
         playerDiv.style.backgroundColor = player.color;
@@ -2778,12 +2808,12 @@ function renderBottlePlayers(players, spinnerId, targetId, turnIndex) {
     playerDiv.title = player.nickname + (player.isBot ? ' 🤖' : '') + (player.socketId === socket.id ? ' (Вы)' : '');
 
     const nameLabel = document.createElement('div');
-    const displayNickname = player.nickname.length > 8 ? player.nickname.substring(0, 7) + '..' : player.nickname;
+    const displayNickname = player.nickname.length > 10 ? player.nickname.substring(0, 9) + '..' : player.nickname;
     nameLabel.textContent = (player.badge ? player.badge + ' ' : '') + displayNickname;
     nameLabel.style.position = 'absolute';
-    nameLabel.style.bottom = '-14px';
-    nameLabel.style.fontSize = '8px';
-    nameLabel.style.width = '60px';
+    nameLabel.style.bottom = '-16px'; // Смещаем ниже для 50px аватарок
+    nameLabel.style.fontSize = '9.5px'; // Увеличенный шрифт никнейма
+    nameLabel.style.width = '70px'; // Увеличенная ширина плашки
     nameLabel.style.textAlign = 'center';
     if (player.color) {
       nameLabel.style.color = player.color;
@@ -3030,6 +3060,138 @@ if (bottleChoiceNoBtn) {
       }
     }
   });
+}
+
+if (bottleChatToggleBtn) {
+  bottleChatToggleBtn.addEventListener('click', () => {
+    if (bottleLocalChatPanel) {
+      const isOpen = bottleLocalChatPanel.style.right === '0px' || bottleLocalChatPanel.style.right === '0';
+      if (isOpen) {
+        bottleLocalChatPanel.style.right = '-240px';
+      } else {
+        bottleLocalChatPanel.style.right = '0px';
+        if (bottleChatBadge) bottleChatBadge.style.display = 'none';
+        if (bottleChatMessages) bottleChatMessages.scrollTop = bottleChatMessages.scrollHeight;
+      }
+    }
+  });
+}
+
+if (bottleChatCloseBtn) {
+  bottleChatCloseBtn.addEventListener('click', () => {
+    if (bottleLocalChatPanel) bottleLocalChatPanel.style.right = '-240px';
+  });
+}
+
+async function sendBottleMessage() {
+  if (!bottleChatInput) return;
+  const text = bottleChatInput.value.trim();
+  if (text && socket && aesKey) {
+    try {
+      const encrypted = await encryptText(text, aesKey);
+      socket.emit('bottle_chat_message', encrypted);
+      bottleChatInput.value = '';
+    } catch (err) {
+      console.error('Ошибка отправки сообщения в чат стола:', err);
+    }
+  }
+}
+
+if (bottleChatSendBtn) {
+  bottleChatSendBtn.addEventListener('click', sendBottleMessage);
+}
+
+if (bottleChatInput) {
+  bottleChatInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      sendBottleMessage();
+    }
+  });
+}
+
+function appendBottleMessageToUi(msg, autoScroll = true) {
+  if (!bottleChatMessages) return;
+  const { author, text, time, badge, color, avatar, avatarFrame } = msg;
+
+  const msgDiv = document.createElement('div');
+  msgDiv.style.display = 'flex';
+  msgDiv.style.flexDirection = 'column';
+  msgDiv.style.background = 'var(--input-bg)';
+  msgDiv.style.border = '1px solid var(--border-color)';
+  msgDiv.style.borderRadius = '8px';
+  msgDiv.style.padding = '6px 8px';
+  msgDiv.style.fontSize = '11px';
+  msgDiv.style.color = 'var(--text-color)';
+  msgDiv.style.wordBreak = 'break-word';
+  msgDiv.style.lineHeight = '1.3';
+  msgDiv.style.boxShadow = '0 1px 2px rgba(0,0,0,0.05)';
+  msgDiv.style.width = '100%';
+  msgDiv.style.boxSizing = 'border-box';
+
+  const headerDiv = document.createElement('div');
+  headerDiv.style.display = 'flex';
+  headerDiv.style.alignItems = 'center';
+  headerDiv.style.gap = '4px';
+  headerDiv.style.fontWeight = 'bold';
+  headerDiv.style.fontSize = '10px';
+  headerDiv.style.marginBottom = '2px';
+
+  // Badge
+  if (badge) {
+    const badgeSpan = document.createElement('span');
+    badgeSpan.textContent = badge;
+    headerDiv.appendChild(badgeSpan);
+  }
+
+  // Author Name
+  const authorSpan = document.createElement('span');
+  authorSpan.textContent = author === currentNickname ? 'Вы' : author;
+  if (color) {
+    authorSpan.style.color = color;
+  } else {
+    authorSpan.style.color = 'var(--accent-color)';
+  }
+  headerDiv.appendChild(authorSpan);
+
+  // Time
+  const timeSpan = document.createElement('span');
+  timeSpan.style.marginLeft = 'auto';
+  timeSpan.style.fontSize = '8.5px';
+  timeSpan.style.color = 'var(--text-muted)';
+  timeSpan.style.fontWeight = 'normal';
+  const date = new Date(time);
+  timeSpan.textContent = `${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`;
+  headerDiv.appendChild(timeSpan);
+
+  msgDiv.appendChild(headerDiv);
+
+  // Message Text
+  const textDiv = document.createElement('div');
+  textDiv.textContent = text;
+  msgDiv.appendChild(textDiv);
+
+  bottleChatMessages.appendChild(msgDiv);
+
+  // If chat panel is NOT open, show the badge (red dot)
+  if (bottleLocalChatPanel && bottleChatBadge) {
+    const isChatOpen = bottleLocalChatPanel.style.right === '0px' || bottleLocalChatPanel.style.right === '0';
+    if (!isChatOpen) {
+      bottleChatBadge.style.display = 'block';
+    }
+  }
+
+  if (autoScroll) {
+    bottleChatMessages.scrollTop = bottleChatMessages.scrollHeight;
+  }
+}
+
+function renderBottleMessages(history) {
+  if (!bottleChatMessages) return;
+  bottleChatMessages.innerHTML = '';
+  if (history && history.length > 0) {
+    history.forEach(msg => appendBottleMessageToUi(msg, false));
+  }
+  bottleChatMessages.scrollTop = bottleChatMessages.scrollHeight;
 }
 
 // --- МАГАЗИН И МУЗЫКАЛЬНЫЕ ФУНКЦИИ ---
