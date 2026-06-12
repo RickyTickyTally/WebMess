@@ -96,6 +96,7 @@ const sendBtn = document.getElementById('send-btn');
 let socket = null;
 let currentUrl = '';
 let currentNickname = '';
+let currentUsersInRoom = [];
 let aesKey = null; // Сессионный AES-GCM ключ
 let currentAvatar = ''; // Текущая аватарка в формате Base64
 
@@ -459,19 +460,29 @@ function connectToChat(url, nickname) {
 
             console.log('[DH] Шифрование согласовано с сервером.');
 
-            // 2. Входим в комнату чата, зашифровав URL, никнейм, Premium параметры и социальные данные
-            const joinPayload = await encryptText(JSON.stringify({ 
-              url, 
-              nickname, 
-              isPremium, 
-              badge, 
-              color, 
-              isInvisible,
-              avatar,
-              telegram,
-              discord
-            }), aesKey);
-            socket.emit('join_room', joinPayload);
+            // Читаем монеты из локального хранилища перед входом в комнату
+            chrome.storage.local.get(['clickerCoins'], async (storageCoinsRes) => {
+              const savedCoins = storageCoinsRes.clickerCoins || 0;
+              clickerCoins = savedCoins;
+
+              // 2. Входим в комнату чата, зашифровав URL, никнейм, Premium параметры, социальные данные и монеты
+              const joinPayload = await encryptText(JSON.stringify({ 
+                url, 
+                nickname, 
+                isPremium, 
+                badge, 
+                color, 
+                isInvisible,
+                avatar,
+                telegram,
+                discord,
+                coins: savedCoins
+              }), aesKey);
+              socket.emit('join_room', joinPayload);
+              
+              // Запускаем автоматическую добычу коинов кликера
+              initClickerGame();
+            });
           } catch (err) {
             console.error('Ошибка рукопожатия:', err);
             usersCountText.textContent = 'В сети: Ошибка шифрования';
@@ -489,6 +500,7 @@ function connectToChat(url, nickname) {
         if (!aesKey) return;
         const decryptedStr = await decryptText(encryptedPayload, aesKey);
         const users = JSON.parse(decryptedStr);
+        currentUsersInRoom = users;
         
         // 1. Обновляем счетчик
         usersCountText.textContent = `В сети: ${users.length}`;
@@ -637,6 +649,12 @@ function connectToChat(url, nickname) {
           userRow.appendChild(socialContainer);
           modalUsersList.appendChild(userRow);
         });
+
+        // Обновляем рейтинг шахтеров, если открыт экран кликера
+        const gamesPanelClicker = document.getElementById('games-panel-clicker');
+        if (gamesPanelClicker && gamesPanelClicker.style.display === 'flex') {
+          renderClickerLeaderboard(users);
+        }
       } catch (err) {
         console.error('Ошибка расшифровки списка участников:', err);
       }
@@ -2076,4 +2094,245 @@ function applyRoomSettings(settings) {
   if (document.getElementById('room-settings-screen').style.display === 'flex') {
     updateRoomSettingsUi();
   }
+}
+
+// --- КЛИКЕР-ИГРА "ШАХТА" (MINER CLICKER) ---
+let clickerCoins = 0;
+let upgradePickaxe = 1;
+let upgradeDrill = 0;
+let upgradeQuantum = 0;
+let clickerTimer = null;
+let clickerSocketThrottleTimer = null;
+let clickerHasUnsavedChanges = false;
+
+function initClickerGame() {
+  chrome.storage.local.get(['clickerCoins', 'upgradePickaxe', 'upgradeDrill', 'upgradeQuantum'], (res) => {
+    clickerCoins = res.clickerCoins || 0;
+    upgradePickaxe = res.upgradePickaxe || 1;
+    upgradeDrill = res.upgradeDrill || 0;
+    upgradeQuantum = res.upgradeQuantum || 0;
+    
+    updateClickerUi();
+    
+    // Запускаем автоматическую добычу каждую секунду
+    if (clickerTimer) clearInterval(clickerTimer);
+    clickerTimer = setInterval(() => {
+      const income = upgradeDrill * 1 + upgradeQuantum * 10;
+      if (income > 0) {
+        clickerCoins += income;
+        clickerHasUnsavedChanges = true;
+        updateClickerUi();
+      }
+    }, 1000);
+    
+    // Запускаем отправку статистики на сервер каждые 3 секунды
+    if (clickerSocketThrottleTimer) clearInterval(clickerSocketThrottleTimer);
+    clickerSocketThrottleTimer = setInterval(() => {
+      if (clickerHasUnsavedChanges && socket && aesKey) {
+        sendClickerStats();
+        clickerHasUnsavedChanges = false;
+      }
+    }, 3000);
+  });
+}
+
+function updateClickerUi() {
+  const coinsDisplay = document.getElementById('clicker-coins-display');
+  const incomeDisplay = document.getElementById('clicker-income-display');
+  if (coinsDisplay) coinsDisplay.textContent = Math.floor(clickerCoins);
+  
+  const income = upgradeDrill * 1 + upgradeQuantum * 10;
+  if (incomeDisplay) incomeDisplay.textContent = `+${income} /сек`;
+  
+  // Улучшение Кирки
+  const costPick = upgradePickaxe * 10;
+  const pickCostEl = document.getElementById('upgrade-pick-cost');
+  const pickDescEl = document.getElementById('upgrade-pick-desc');
+  if (pickCostEl) pickCostEl.textContent = costPick;
+  if (pickDescEl) pickDescEl.textContent = `Клик: +${upgradePickaxe} коин (Ур. ${upgradePickaxe})`;
+  
+  // Улучшение Бура
+  const costDrill = (upgradeDrill + 1) * 50;
+  const drillCostEl = document.getElementById('upgrade-drill-cost');
+  const drillDescEl = document.getElementById('upgrade-drill-desc');
+  if (drillCostEl) drillCostEl.textContent = costDrill;
+  if (drillDescEl) drillDescEl.textContent = `+1/сек автоматически (Ур. ${upgradeDrill})`;
+  
+  // Улучшение Квантового Бура
+  const costQuantum = (upgradeQuantum + 1) * 250;
+  const quantumCostEl = document.getElementById('upgrade-quantum-cost');
+  const quantumDescEl = document.getElementById('upgrade-quantum-desc');
+  if (quantumCostEl) quantumCostEl.textContent = costQuantum;
+  if (quantumDescEl) quantumDescEl.textContent = `+10/сек автоматически (Ур. ${upgradeQuantum})`;
+}
+
+async function sendClickerStats() {
+  try {
+    const payload = await encryptText(JSON.stringify({ coins: Math.floor(clickerCoins) }), aesKey);
+    socket.emit('clicker_update', payload);
+    
+    // Сохраняем в локальное хранилище
+    chrome.storage.local.set({
+      clickerCoins,
+      upgradePickaxe,
+      upgradeDrill,
+      upgradeQuantum
+    });
+  } catch(e) {
+    console.error('Ошибка отправки кликера', e);
+  }
+}
+
+function createFlyingText(x, y, text) {
+  const el = document.createElement('div');
+  el.textContent = text;
+  el.style.position = 'fixed';
+  el.style.left = `${x}px`;
+  el.style.top = `${y}px`;
+  el.style.color = '#ffc107';
+  el.style.fontWeight = '900';
+  el.style.fontSize = '14px';
+  el.style.pointerEvents = 'none';
+  el.style.zIndex = '9999';
+  el.style.transition = 'all 0.8s ease-out';
+  el.style.transform = 'translate(-50%, -50%)';
+  document.body.appendChild(el);
+  
+  setTimeout(() => {
+    el.style.top = `${y - 40}px`;
+    el.style.opacity = '0';
+  }, 10);
+  
+  setTimeout(() => {
+    el.remove();
+  }, 800);
+}
+
+function renderClickerLeaderboard(usersInRoom) {
+  const leaderboardList = document.getElementById('clicker-leaderboard-list');
+  if (!leaderboardList) return;
+  leaderboardList.innerHTML = '';
+  
+  const sortedUsers = [...usersInRoom].sort((a, b) => (b.coins || 0) - (a.coins || 0));
+  
+  sortedUsers.forEach((u, index) => {
+    const isSelf = u.nickname === currentNickname;
+    const row = document.createElement('div');
+    row.style.display = 'flex';
+    row.style.justifyContent = 'space-between';
+    row.style.alignItems = 'center';
+    row.style.fontSize = '12px';
+    row.style.padding = '4px 6px';
+    row.style.borderRadius = '4px';
+    row.style.background = isSelf ? 'var(--tab-active-bg)' : 'transparent';
+    row.style.color = isSelf ? 'var(--tab-active-text)' : 'var(--text-color)';
+    row.style.fontWeight = isSelf ? 'bold' : 'normal';
+    
+    row.innerHTML = `
+      <div style="display: flex; align-items: center; gap: 6px;">
+        <span style="font-size: 10px; color: var(--text-muted); font-weight: bold; width: 14px;">#${index + 1}</span>
+        <span>${u.nickname}</span>
+      </div>
+      <div style="color: #ffc107; font-weight: bold; display: flex; align-items: center; gap: 2px;">
+        <span>🪙</span>
+        <span>${u.coins || 0}</span>
+      </div>
+    `;
+    leaderboardList.appendChild(row);
+  });
+}
+
+// Слушатели событий кликера
+const clickerCrystal = document.getElementById('clicker-crystal');
+if (clickerCrystal) {
+  clickerCrystal.addEventListener('click', (e) => {
+    clickerCrystal.style.transform = 'scale(0.95)';
+    setTimeout(() => {
+      clickerCrystal.style.transform = 'scale(1)';
+    }, 50);
+    
+    clickerCoins += upgradePickaxe;
+    clickerHasUnsavedChanges = true;
+    updateClickerUi();
+    
+    createFlyingText(e.clientX, e.clientY, `+${upgradePickaxe}`);
+  });
+}
+
+const buyUpgradePick = document.getElementById('buy-upgrade-pick');
+if (buyUpgradePick) {
+  buyUpgradePick.addEventListener('click', () => {
+    const cost = upgradePickaxe * 10;
+    if (clickerCoins >= cost) {
+      clickerCoins -= cost;
+      upgradePickaxe += 1;
+      clickerHasUnsavedChanges = true;
+      updateClickerUi();
+      sendClickerStats();
+    }
+  });
+}
+
+const buyUpgradeDrill = document.getElementById('buy-upgrade-drill');
+if (buyUpgradeDrill) {
+  buyUpgradeDrill.addEventListener('click', () => {
+    const cost = (upgradeDrill + 1) * 50;
+    if (clickerCoins >= cost) {
+      clickerCoins -= cost;
+      upgradeDrill += 1;
+      clickerHasUnsavedChanges = true;
+      updateClickerUi();
+      sendClickerStats();
+    }
+  });
+}
+
+const buyUpgradeQuantum = document.getElementById('buy-upgrade-quantum');
+if (buyUpgradeQuantum) {
+  buyUpgradeQuantum.addEventListener('click', () => {
+    const cost = (upgradeQuantum + 1) * 250;
+    if (clickerCoins >= cost) {
+      clickerCoins -= cost;
+      upgradeQuantum += 1;
+      clickerHasUnsavedChanges = true;
+      updateClickerUi();
+      sendClickerStats();
+    }
+  });
+}
+
+// Переключение между PVP Ареной и Шахтой (кликером)
+const gameTabPvp = document.getElementById('game-tab-pvp');
+const gameTabClicker = document.getElementById('game-tab-clicker');
+const gamesPanelPvp = document.getElementById('games-panel-pvp');
+const gamesPanelClicker = document.getElementById('games-panel-clicker');
+
+if (gameTabPvp && gameTabClicker) {
+  gameTabPvp.addEventListener('click', () => {
+    gameTabPvp.classList.add('active');
+    gameTabPvp.style.background = 'var(--tab-active-bg)';
+    gameTabPvp.style.color = 'var(--tab-active-text)';
+    
+    gameTabClicker.classList.remove('active');
+    gameTabClicker.style.background = 'transparent';
+    gameTabClicker.style.color = 'var(--text-color)';
+    
+    if (gamesPanelPvp) gamesPanelPvp.style.display = 'flex';
+    if (gamesPanelClicker) gamesPanelClicker.style.display = 'none';
+  });
+  
+  gameTabClicker.addEventListener('click', () => {
+    gameTabClicker.classList.add('active');
+    gameTabClicker.style.background = 'var(--tab-active-bg)';
+    gameTabClicker.style.color = 'var(--tab-active-text)';
+    
+    gameTabPvp.classList.remove('active');
+    gameTabPvp.style.background = 'transparent';
+    gameTabPvp.style.color = 'var(--text-color)';
+    
+    if (gamesPanelClicker) gamesPanelClicker.style.display = 'flex';
+    if (gamesPanelPvp) gamesPanelPvp.style.display = 'none';
+    
+    renderClickerLeaderboard(currentUsersInRoom);
+  });
 }

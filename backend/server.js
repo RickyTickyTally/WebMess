@@ -23,6 +23,21 @@ const socketKeys = new Map();
 // Хранилище информации о пользователях (socket.id -> { nickname, room, isPremium, badge, color, isInvisible })
 const users = new Map();
 
+// Хелпер: Получение списка активных участников комнаты с их монетами
+function getRoomUsers(room) {
+  return Array.from(users.values())
+    .filter(u => u.room === room && !u.isInvisible)
+    .map(u => ({
+      nickname: u.nickname,
+      badge: u.badge || null,
+      color: u.color || null,
+      avatar: u.avatar || null,
+      telegram: u.telegram || null,
+      discord: u.discord || null,
+      coins: u.coins || 0
+    }));
+}
+
 // Хранилище таймаутов отключения пользователей (socket.id -> { timeoutId, room, nickname })
 const disconnectTimeouts = new Map();
 
@@ -165,7 +180,7 @@ io.on('connection', (socket) => {
 
     try {
       const decryptedStr = decryptPayload(encryptedPayload, key);
-      const { url, nickname, isPremium, badge, color, isInvisible, avatar, telegram, discord } = JSON.parse(decryptedStr);
+      const { url, nickname, isPremium, badge, color, isInvisible, avatar, telegram, discord, coins } = JSON.parse(decryptedStr);
 
       const room = url.split('?')[0].split('#')[0].replace(/\/$/, '');
       
@@ -185,17 +200,7 @@ io.on('connection', (socket) => {
 
           // Если комната изменилась, уведомляем участников старой комнаты
           if (oldRoom !== room) {
-            const oldUsersInRoom = Array.from(users.values())
-              .filter(u => u.room === oldRoom && !u.isInvisible)
-              .map(u => ({
-                nickname: u.nickname,
-                badge: u.badge || null,
-                color: u.color || null,
-                avatar: u.avatar || null,
-                telegram: u.telegram || null,
-                discord: u.discord || null
-              }));
-            broadcastToRoom(oldRoom, 'update_users', oldUsersInRoom);
+            broadcastToRoom(oldRoom, 'update_users', getRoomUsers(oldRoom));
           }
         }
       }
@@ -210,26 +215,15 @@ io.on('connection', (socket) => {
         isInvisible: isInvisible || false,
         avatar: avatar || '',
         telegram: telegram || '',
-        discord: discord || ''
+        discord: discord || '',
+        coins: coins || 0
       });
       socket.join(room);
 
       console.log(`[JOIN] ${nickname} присоеденился к комнате: ${room} (Premium: ${isPremium}, Invisible: ${isInvisible})`);
 
-      // Формируем список участников комнаты (исключая пользователей в режиме невидимки)
-      const usersInRoom = Array.from(users.values())
-        .filter(u => u.room === room && !u.isInvisible)
-        .map(u => ({
-          nickname: u.nickname,
-          badge: u.badge || null,
-          color: u.color || null,
-          avatar: u.avatar || null,
-          telegram: u.telegram || null,
-          discord: u.discord || null
-        }));
-
       // Рассылаем обновленный список пользователей (каждому со своим ключом)
-      broadcastToRoom(room, 'update_users', usersInRoom);
+      broadcastToRoom(room, 'update_users', getRoomUsers(room));
 
       // Отправляем историю сообщений новому участнику
       const history = roomHistories.get(room) || [];
@@ -495,6 +489,20 @@ io.on('connection', (socket) => {
     }
   });
 
+  socket.on('clicker_update', (encryptedPayload) => {
+    const key = socketKeys.get(socket.id);
+    const user = users.get(socket.id);
+    if (!key || !user) return;
+    try {
+      const decryptedStr = decryptPayload(encryptedPayload, key);
+      const { coins } = JSON.parse(decryptedStr);
+      user.coins = coins || 0;
+      broadcastToRoom(user.room, 'update_users', getRoomUsers(user.room));
+    } catch (err) {
+      console.error('Ошибка clicker_update:', err);
+    }
+  });
+
   socket.on('game_leave', () => {
     const user = users.get(socket.id);
     if (!user) return;
@@ -519,18 +527,7 @@ io.on('connection', (socket) => {
         console.log(`[-] ${nickname} окончательно отключился от комнаты: ${room}`);
 
         // Обновляем список участников для остальных
-        const usersInRoom = Array.from(users.values())
-          .filter(u => u.room === room && !u.isInvisible)
-          .map(u => ({
-            nickname: u.nickname,
-            badge: u.badge || null,
-            color: u.color || null,
-            avatar: u.avatar || null,
-            telegram: u.telegram || null,
-            discord: u.discord || null
-          }));
-
-        broadcastToRoom(room, 'update_users', usersInRoom);
+        broadcastToRoom(room, 'update_users', getRoomUsers(room));
       }, 30000);
 
       disconnectTimeouts.set(socket.id, {
