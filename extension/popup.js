@@ -1243,12 +1243,21 @@ async function init() {
   });
 
   // Получаем текущую активную вкладку
-  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-  
-  if (tab && tab.url) {
-    currentUrl = tab.url;
+  const urlParams = new URLSearchParams(window.location.search);
+  if (urlParams.get('tab') === 'true') {
+    const paramRoom = urlParams.get('room');
+    if (paramRoom) {
+      currentUrl = paramRoom;
+    } else {
+      currentUrl = 'https://global-room'; // fallback
+    }
   } else {
-    currentUrl = '';
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (tab && tab.url) {
+      currentUrl = tab.url;
+    } else {
+      currentUrl = '';
+    }
   }
 
   // Загружаем вкладки в сайдбар
@@ -2025,7 +2034,7 @@ function checkSnakeCollisions() {
           for (let i = 0; i < body.length; i++) {
             const dx = bot.x - body[i].x;
             const dy = bot.y - body[i].y;
-            const dist = Math.sqrt(dx * dx + body[i].x);
+            const dist = Math.sqrt(dx * dx + dy * dy);
             if (dist < 18) {
               localPlayer.infected = true;
               localPlayer.hp = 100;
@@ -3017,7 +3026,8 @@ if (gameTabPvp && gameTabClicker && gameTabRelax && gameTabBottle && gameTabShop
 const gameFullscreenBtn = document.getElementById('game-fullscreen-btn');
 if (gameFullscreenBtn) {
   gameFullscreenBtn.addEventListener('click', () => {
-    chrome.tabs.create({ url: chrome.runtime.getURL('popup.html?tab=true') });
+    const targetUrl = chrome.runtime.getURL(`popup.html?tab=true&room=${encodeURIComponent(currentUrl)}`);
+    chrome.tabs.create({ url: targetUrl });
   });
 }
 
