@@ -173,7 +173,30 @@
       font-weight: bold;
       text-align: center;
       font-size: 15px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
     }
+    
+    #profile-btn {
+      background: none;
+      border: none;
+      color: white;
+      cursor: pointer;
+      padding: 4px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: opacity 0.2s;
+    }
+    #profile-btn:hover {
+      opacity: 0.8;
+    }
+    #profile-btn svg {
+      width: 20px;
+      height: 20px;
+    }
+
     .users-list {
       font-size: 12px;
       padding: 8px 16px;
@@ -242,6 +265,23 @@
     .input-area button:hover {
       background-color: #157347;
     }
+
+    /* Скайп-заглушка аватара */
+    .skype-avatar {
+      width: 64px;
+      height: 64px;
+      background-color: #adb5bd;
+      border-radius: 50%;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      color: white;
+      margin: 0 auto 16px auto;
+    }
+    .skype-avatar svg {
+      width: 40px;
+      height: 40px;
+    }
   </style>
   <!-- Подключение локального Socket.io клиента -->
   <script src="socket.io.min.js"></script>
@@ -271,17 +311,110 @@
       <h3>Добро пожаловать</h3>
       <p>Введите никнейм, чтобы присоединиться к чату этой страницы</p>
       <input type="text" id="nickname-input" placeholder="Ваш никнейм" maxlength="20">
+      
+      <!-- Премиум настройки -->
+      <div style="background: #ffffff; padding: 12px; border: 1px dashed #ced4da; border-radius: 8px; margin-bottom: 16px; text-align: left; box-sizing: border-box;">
+        <label style="display: flex; align-items: center; gap: 8px; font-weight: bold; font-size: 13px; margin-bottom: 4px; cursor: pointer;">
+          <input type="checkbox" id="premium-checkbox">
+          Активировать Premium ($3/мес)
+        </label>
+        
+        <div id="premium-options" style="display: none; flex-direction: column; gap: 8px; margin-top: 8px; border-top: 1px solid #f1f3f5; padding-top: 8px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; font-size: 12px;">
+            <span>Бейдж:</span>
+            <select id="premium-badge" style="padding: 4px; border-radius: 4px; border: 1px solid #ced4da; font-size: 12px;">
+              <option value="">Без бейджа</option>
+              <option value="👑">👑 Создатель</option>
+              <option value="🔥">🔥 Профи</option>
+              <option value="⚡">⚡ Молния</option>
+            </select>
+          </div>
+          <div style="display: flex; justify-content: space-between; align-items: center; font-size: 12px;">
+            <span>Цвет никнейма:</span>
+            <select id="premium-color" style="padding: 4px; border-radius: 4px; border: 1px solid #ced4da; font-size: 12px;">
+              <option value="">По умолчанию</option>
+              <option value="#dc3545">🔴 Красный</option>
+              <option value="#6f42c1">🟣 Фиолетовый</option>
+              <option value="#fd7e14">🟠 Оранжевый</option>
+            </select>
+          </div>
+          <label style="display: flex; align-items: center; gap: 8px; font-size: 12px; cursor: pointer; margin-top: 4px;">
+            <input type="checkbox" id="invisible-checkbox">
+            Режим "Невидимка"
+          </label>
+        </div>
+      </div>
+      
       <button id="save-nickname-btn">Войти в чат</button>
     </div>
 
     <!-- 3. Экран чата -->
     <div id="chat-screen" class="screen">
-      <div class="header" id="chat-header-title">Site Chat</div>
+      <div class="header">
+        <span id="chat-header-title">Site Chat</span>
+        <!-- Кнопка человечка как в скайпе -->
+        <button id="profile-btn" title="Профиль">
+          <svg viewBox="0 0 24 24" fill="currentColor">
+            <path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/>
+          </svg>
+        </button>
+      </div>
       <div class="users-list" id="users-list">Подключение к сети...</div>
       <div class="messages" id="messages-container"></div>
       <div class="input-area">
         <input type="text" id="message-input" placeholder="Сообщение..." autocomplete="off">
         <button id="send-btn">Отправить</button>
+      </div>
+    </div>
+
+    <!-- 4. Экран профиля/настроек -->
+    <div id="profile-screen" class="screen" style="justify-content: center; padding: 32px; text-align: center;">
+      <!-- Скайп-заглушка человечка -->
+      <div class="skype-avatar">
+        <svg viewBox="0 0 24 24" fill="currentColor">
+          <path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/>
+        </svg>
+      </div>
+      <h3 style="margin: 0 0 16px 0;">Настройки профиля</h3>
+      
+      <input type="text" id="profile-nickname-input" placeholder="Ваш никнейм" maxlength="20" style="padding: 10px; margin-bottom: 16px; border: 1px solid #ced4da; border-radius: 6px; font-size: 14px; outline: none; transition: border-color 0.2s;">
+      
+      <!-- Премиум настройки в профиле -->
+      <div style="background: #ffffff; padding: 12px; border: 1px dashed #ced4da; border-radius: 8px; margin-bottom: 16px; text-align: left; box-sizing: border-box;">
+        <label style="display: flex; align-items: center; gap: 8px; font-weight: bold; font-size: 13px; margin-bottom: 4px; cursor: pointer;">
+          <input type="checkbox" id="profile-premium-checkbox">
+          Активировать Premium ($3/мес)
+        </label>
+        
+        <div id="profile-premium-options" style="display: none; flex-direction: column; gap: 8px; margin-top: 8px; border-top: 1px solid #f1f3f5; padding-top: 8px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; font-size: 12px;">
+            <span>Бейдж:</span>
+            <select id="profile-premium-badge" style="padding: 4px; border-radius: 4px; border: 1px solid #ced4da; font-size: 12px;">
+              <option value="">Без бейджа</option>
+              <option value="👑">👑 Создатель</option>
+              <option value="🔥">🔥 Профи</option>
+              <option value="⚡">⚡ Молния</option>
+            </select>
+          </div>
+          <div style="display: flex; justify-content: space-between; align-items: center; font-size: 12px;">
+            <span>Цвет никнейма:</span>
+            <select id="profile-premium-color" style="padding: 4px; border-radius: 4px; border: 1px solid #ced4da; font-size: 12px;">
+              <option value="">По умолчанию</option>
+              <option value="#dc3545">🔴 Красный</option>
+              <option value="#6f42c1">🟣 Фиолетовый</option>
+              <option value="#fd7e14">🟠 Оранжевый</option>
+            </select>
+          </div>
+          <label style="display: flex; align-items: center; gap: 8px; font-size: 12px; cursor: pointer; margin-top: 4px;">
+            <input type="checkbox" id="profile-invisible-checkbox">
+            Режим "Невидимка"
+          </label>
+        </div>
+      </div>
+      
+      <div style="display: flex; gap: 8px;">
+        <button id="save-profile-btn" style="flex: 1; padding: 10px; background-color: #0d6efd; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 14px; font-weight: 600;">Сохранить</button>
+        <button id="cancel-profile-btn" style="padding: 10px 16px; background-color: #6c757d; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 14px; font-weight: 600;">Отмена</button>
       </div>
     </div>
   </div>

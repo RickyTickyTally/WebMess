@@ -4,15 +4,28 @@ const SERVER_URL = 'https://bibiswim-webmess.hf.space'; // Ссылка на в�
 const blockedScreen = document.getElementById('blocked-screen');
 const authScreen = document.getElementById('auth-screen');
 const chatScreen = document.getElementById('chat-screen');
+const profileScreen = document.getElementById('profile-screen');
 
 const nicknameInput = document.getElementById('nickname-input');
 const saveNicknameBtn = document.getElementById('save-nickname-btn');
 
+// Элементы авторизации
 const premiumCheckbox = document.getElementById('premium-checkbox');
 const premiumOptions = document.getElementById('premium-options');
 const premiumBadge = document.getElementById('premium-badge');
 const premiumColor = document.getElementById('premium-color');
 const invisibleCheckbox = document.getElementById('invisible-checkbox');
+
+// Элементы профиля
+const profileBtn = document.getElementById('profile-btn');
+const profileNicknameInput = document.getElementById('profile-nickname-input');
+const profilePremiumCheckbox = document.getElementById('profile-premium-checkbox');
+const profilePremiumOptions = document.getElementById('profile-premium-options');
+const profilePremiumBadge = document.getElementById('profile-premium-badge');
+const profilePremiumColor = document.getElementById('profile-premium-color');
+const profileInvisibleCheckbox = document.getElementById('profile-invisible-checkbox');
+const saveProfileBtn = document.getElementById('save-profile-btn');
+const cancelProfileBtn = document.getElementById('cancel-profile-btn');
 
 const usersList = document.getElementById('users-list');
 const messagesContainer = document.getElementById('messages-container');
@@ -24,9 +37,14 @@ let currentUrl = '';
 let currentNickname = '';
 let aesKey = null; // Сессионный AES-GCM ключ
 
-// Переключение видимости блока премиум-настроек
+// Переключение видимости блока премиум-настроек при авторизации
 premiumCheckbox.addEventListener('change', () => {
   premiumOptions.style.display = premiumCheckbox.checked ? 'flex' : 'none';
+});
+
+// Переключение видимости блока премиум-настроек в профиле
+profilePremiumCheckbox.addEventListener('change', () => {
+  profilePremiumOptions.style.display = profilePremiumCheckbox.checked ? 'flex' : 'none';
 });
 
 // Вспомогательные функции конвертации буфера и hex-строки
@@ -80,6 +98,7 @@ function showScreen(screenId) {
   blockedScreen.style.display = 'none';
   authScreen.style.display = 'none';
   chatScreen.style.display = 'none';
+  profileScreen.style.display = 'none';
   document.getElementById(`${screenId}-screen`).style.display = 'flex';
 }
 
@@ -401,6 +420,7 @@ async function sendMessage() {
 
 // --- СОБЫТИЯ UI ---
 
+// Авторизация
 saveNicknameBtn.addEventListener('click', () => {
   const nickname = nicknameInput.value.trim();
   if (nickname) {
@@ -420,6 +440,48 @@ saveNicknameBtn.addEventListener('click', () => {
       connectToChat(currentUrl, currentNickname);
     });
   }
+});
+
+// Открытие экрана профиля
+profileBtn.addEventListener('click', () => {
+  chrome.storage.local.get(['nickname', 'isPremium', 'premiumBadge', 'premiumColor', 'isInvisible'], (result) => {
+    profileNicknameInput.value = result.nickname || '';
+    profilePremiumCheckbox.checked = result.isPremium || false;
+    profilePremiumOptions.style.display = profilePremiumCheckbox.checked ? 'flex' : 'none';
+    profilePremiumBadge.value = result.premiumBadge || '';
+    profilePremiumColor.value = result.premiumColor || '';
+    profileInvisibleCheckbox.checked = result.isInvisible || false;
+    
+    showScreen('profile');
+  });
+});
+
+// Сохранение изменений в профиле
+saveProfileBtn.addEventListener('click', () => {
+  const nickname = profileNicknameInput.value.trim();
+  if (nickname) {
+    const isPremium = profilePremiumCheckbox.checked;
+    const badge = isPremium ? profilePremiumBadge.value : '';
+    const color = isPremium ? profilePremiumColor.value : '';
+    const isInvisible = isPremium ? profileInvisibleCheckbox.checked : false;
+
+    chrome.storage.local.set({ 
+      nickname,
+      isPremium,
+      premiumBadge: badge,
+      premiumColor: color,
+      isInvisible
+    }, () => {
+      currentNickname = nickname;
+      // Переподключаемся к чату для обновления данных сессии
+      switchChatRoom(currentUrl);
+    });
+  }
+});
+
+// Отмена изменений в профиле
+cancelProfileBtn.addEventListener('click', () => {
+  showScreen('chat');
 });
 
 sendBtn.addEventListener('click', sendMessage);
@@ -447,7 +509,7 @@ async function init() {
       if (result.nickname) {
         currentNickname = result.nickname;
         
-        // Пре-заполняем поля премиума в форме, если они есть
+        // Пре-заполняем поля премиума в форме авторизации
         premiumCheckbox.checked = result.isPremium || false;
         premiumOptions.style.display = premiumCheckbox.checked ? 'flex' : 'none';
         premiumBadge.value = result.premiumBadge || '';
