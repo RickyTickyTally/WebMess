@@ -76,6 +76,7 @@ const bottleChoiceTimerVal = document.getElementById('bottle-choice-timer-val');
 const bottleJoinBtn = document.getElementById('bottle-join-btn');
 const bottleLeaveBtn = document.getElementById('bottle-leave-btn');
 const bottleSpinBtn = document.getElementById('bottle-spin-btn');
+const bottleSpinAnytimeBtn = document.getElementById('bottle-spin-anytime-btn');
 
 let bottleChoiceTimer = null;
 
@@ -2838,17 +2839,25 @@ function updateBottleUi(game) {
     if (myTurn) {
       if (bottleStatusText) bottleStatusText.textContent = 'Ваш ход! Крутите бутылочку 🍾';
       if (bottleSpinBtn) bottleSpinBtn.style.display = 'block';
+      if (bottleSpinAnytimeBtn) bottleSpinAnytimeBtn.style.display = 'none';
     } else {
       if (bottleStatusText) bottleStatusText.textContent = `Ход игрока ${currentSpinnerName}...`;
       if (bottleSpinBtn) bottleSpinBtn.style.display = 'none';
+      if (me && bottleSpinAnytimeBtn) {
+        bottleSpinAnytimeBtn.style.display = 'block';
+      } else if (bottleSpinAnytimeBtn) {
+        bottleSpinAnytimeBtn.style.display = 'none';
+      }
     }
   } else if (game.state === 'spinning') {
     if (bottleChoiceOverlay) bottleChoiceOverlay.style.display = 'none';
     if (bottleTurnTimer) bottleTurnTimer.style.display = 'none';
     if (bottleSpinBtn) bottleSpinBtn.style.display = 'none';
+    if (bottleSpinAnytimeBtn) bottleSpinAnytimeBtn.style.display = 'none';
     if (bottleStatusText) bottleStatusText.textContent = 'Бутылочка крутится... 🍾';
   } else if (game.state === 'kissing') {
     if (bottleSpinBtn) bottleSpinBtn.style.display = 'none';
+    if (bottleSpinAnytimeBtn) bottleSpinAnytimeBtn.style.display = 'none';
     
     const spinner = game.players.find(p => p.socketId === game.spinnerId);
     const target = game.players.find(p => p.socketId === game.targetId);
@@ -2874,6 +2883,7 @@ function updateBottleUi(game) {
     if (bottleChoiceOverlay) bottleChoiceOverlay.style.display = 'none';
     if (bottleTurnTimer) bottleTurnTimer.style.display = 'none';
     if (bottleSpinBtn) bottleSpinBtn.style.display = 'none';
+    if (bottleSpinAnytimeBtn) bottleSpinAnytimeBtn.style.display = 'none';
     if (bottleStatusText) bottleStatusText.textContent = 'Раунд завершен!';
   }
 }
@@ -2966,6 +2976,33 @@ if (bottleLeaveBtn) {
 if (bottleSpinBtn) {
   bottleSpinBtn.addEventListener('click', () => {
     if (socket) socket.emit('bottle_spin');
+  });
+}
+
+if (bottleSpinAnytimeBtn) {
+  bottleSpinAnytimeBtn.addEventListener('click', async () => {
+    chrome.storage.local.get(['clickerCoins'], async (res) => {
+      const coins = res.clickerCoins || 0;
+      if (coins < 30) {
+        alert('Недостаточно монет кликера! Ход вне очереди стоит 30 🪙.');
+        return;
+      }
+      
+      const newCoins = coins - 30;
+      chrome.storage.local.set({ clickerCoins: newCoins }, async () => {
+        clickerCoins = newCoins;
+        updateClickerUi();
+        updateShopUi();
+        sendClickerStats();
+
+        try {
+          const payload = await encryptText(JSON.stringify({ cost: 30 }), aesKey);
+          socket.emit('bottle_buy_spin', payload);
+        } catch (err) {
+          console.error('Ошибка шифрования покупки хода:', err);
+        }
+      });
+    });
   });
 }
 

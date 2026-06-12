@@ -191,7 +191,17 @@ function resetBottleRound(game) {
   game.targetId = null;
   game.choices = {};
   if (game.players.length > 0) {
-    game.turnIndex = (game.turnIndex + 1) % game.players.length;
+    if (game.savedSpinnerId) {
+      const originalIndex = game.players.findIndex(p => p.socketId === game.savedSpinnerId);
+      if (originalIndex !== -1) {
+        game.turnIndex = originalIndex;
+      } else {
+        game.turnIndex = (game.turnIndex + 1) % game.players.length;
+      }
+      game.savedSpinnerId = null;
+    } else {
+      game.turnIndex = (game.turnIndex + 1) % game.players.length;
+    }
   } else {
     game.turnIndex = 0;
   }
@@ -346,7 +356,17 @@ function resolveKissingChoices(room) {
 
   game.timerId = setTimeout(() => {
     if (game.players.length > 0) {
-      game.turnIndex = (game.turnIndex + 1) % game.players.length;
+      if (game.savedSpinnerId) {
+        const originalIndex = game.players.findIndex(p => p.socketId === game.savedSpinnerId);
+        if (originalIndex !== -1) {
+          game.turnIndex = originalIndex;
+        } else {
+          game.turnIndex = (game.turnIndex + 1) % game.players.length;
+        }
+        game.savedSpinnerId = null;
+      } else {
+        game.turnIndex = (game.turnIndex + 1) % game.players.length;
+      }
     } else {
       game.turnIndex = 0;
     }
@@ -977,6 +997,51 @@ io.on('connection', (socket) => {
     const user = users.get(socket.id);
     if (!user) return;
     spinBottle(user.room, socket.id);
+  });
+
+  socket.on('bottle_buy_spin', (encryptedPayload) => {
+    const key = socketKeys.get(socket.id);
+    const user = users.get(socket.id);
+    if (!key || !user) return;
+    try {
+      const decryptedStr = decryptPayload(encryptedPayload, key);
+      const { cost } = JSON.parse(decryptedStr);
+
+      if (user.coins < cost) {
+        return; // Недостаточно монет
+      }
+
+      const game = bottleGames.get(user.room);
+      if (!game || game.state !== 'waiting') return;
+
+      const playerIndex = game.players.findIndex(p => p.socketId === socket.id);
+      if (playerIndex === -1) return; // Игрок не за столом
+
+      const currentSpinner = game.players[game.turnIndex];
+      if (currentSpinner && currentSpinner.socketId === socket.id) {
+        // Если его ход, то покупать не нужно
+        return;
+      }
+
+      user.coins -= cost;
+
+      // Запоминаем оригинального игрока, чей сейчас ход
+      if (currentSpinner && !game.savedSpinnerId) {
+        game.savedSpinnerId = currentSpinner.socketId;
+      }
+
+      // Переводим ход на покупателя
+      game.turnIndex = playerIndex;
+
+      // Обновляем монеты
+      broadcastToRoom(user.room, 'update_users', getRoomUsers(user.room));
+
+      // Запускаем вращение
+      spinBottle(user.room, socket.id);
+
+    } catch (err) {
+      console.error('Ошибка bottle_buy_spin:', err);
+    }
   });
 
   socket.on('bottle_choice', (encryptedPayload) => {
