@@ -380,6 +380,14 @@ function appendMessageToUi(msg, autoScroll = true) {
 
 // Подключение к WebSocket с ECDH рукопожатием
 function connectToChat(url, nickname) {
+  if (socket) {
+    try {
+      socket.disconnect();
+    } catch (e) {}
+    socket = null;
+  }
+  aesKey = null;
+
   showScreen('chat');
   messagesContainer.innerHTML = '';
   usersCountText.textContent = 'В сети: Подключение...';
