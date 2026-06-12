@@ -3414,7 +3414,8 @@ function playRoomMusic(videoId) {
   const globalPlayer = document.getElementById('global-music-player');
   if (globalPlayer) {
     const extensionOrigin = chrome.runtime.getURL('').slice(0, -1);
-    globalPlayer.src = `https://www.youtube-nocookie.com/embed/${videoId}?autoplay=1&mute=${isLocallyMuted ? 1 : 0}&enablejsapi=1&origin=${encodeURIComponent(extensionOrigin)}`;
+    // Принудительно стартуем с mute=1, чтобы обойти блокировку автоплея браузером
+    globalPlayer.src = `https://www.youtube-nocookie.com/embed/${videoId}?autoplay=1&mute=1&enablejsapi=1&origin=${encodeURIComponent(extensionOrigin)}`;
   }
 }
 
@@ -3439,4 +3440,23 @@ window.addEventListener('click', () => {
       }
     }
   }
+});
+
+// Слушаем события от YouTube iframe, чтобы снять mute как только плеер будет готов
+window.addEventListener('message', (event) => {
+  if (event.origin !== 'https://www.youtube-nocookie.com' && event.origin !== 'https://www.youtube.com') return;
+  try {
+    const data = JSON.parse(event.data);
+    if (data.event === 'onReady' || data.event === 'infoDelivery') {
+      const globalPlayer = document.getElementById('global-music-player');
+      if (globalPlayer && globalPlayer.contentWindow && isRoomMusicPlaying) {
+        // Как только плеер готов, пытаемся включить звук и запустить
+        globalPlayer.contentWindow.postMessage(JSON.stringify({ event: 'command', func: 'playVideo' }), '*');
+        if (!isLocallyMuted) {
+          globalPlayer.contentWindow.postMessage(JSON.stringify({ event: 'command', func: 'unMute' }), '*');
+          globalPlayer.contentWindow.postMessage(JSON.stringify({ event: 'command', func: 'setVolume', args: [100] }), '*');
+        }
+      }
+    }
+  } catch (err) {}
 });
