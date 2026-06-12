@@ -1,12 +1,29 @@
 // Polyfill minimal browser environment for Socket.io in Service Worker
 self.window = self;
 self.document = {
-  createElement: () => ({})
+  createElement: () => ({
+    style: {},
+    setAttribute: () => {},
+    appendChild: () => {}
+  }),
+  getElementsByTagName: () => [],
+  head: {
+    appendChild: () => {}
+  },
+  body: {
+    appendChild: () => {}
+  },
+  cookie: ""
 };
-self.location = {
+self.navigator = self.navigator || {
+  userAgent: 'Mozilla/5.0'
+};
+self.location = self.location || {
   protocol: 'https:',
   href: ''
 };
+self.addEventListener = self.addEventListener || (() => {});
+self.removeEventListener = self.removeEventListener || (() => {});
 
 importScripts('socket.io.min.js');
 

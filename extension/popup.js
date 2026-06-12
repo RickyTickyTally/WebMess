@@ -8,7 +8,14 @@ if (urlParams.get('tab') === 'true') {
 
 // Connect to background service worker and clear badge
 try {
-  chrome.runtime.connect({ name: "popup" });
+  const port = chrome.runtime.connect({ name: "popup" });
+  port.onDisconnect.addListener(() => {
+    // Accessing chrome.runtime.lastError inside onDisconnect avoids the 'Unchecked runtime.lastError' warning
+    const err = chrome.runtime.lastError;
+    if (err) {
+      console.warn("Background port connection not active yet:", err.message);
+    }
+  });
   chrome.action.setBadgeText({ text: "" });
 } catch (e) {
   console.warn("Background port/badge connection failed:", e);
