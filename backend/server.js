@@ -21,6 +21,9 @@ const socketKeys = new Map();
 // Хранилище информации о пользователях (socket.id -> { nickname, room, isPremium, badge, color, isInvisible })
 const users = new Map();
 
+// Хранилище таймаутов отключения пользователей (socket.id -> { timeoutId, room, nickname })
+const disconnectTimeouts = new Map();
+
 // Хранилище истории сообщений в комнатах (room -> Array)
 const roomHistories = new Map();
 
@@ -142,6 +145,34 @@ io.on('connection', (socket) => {
 
       const room = url.split('?')[0].split('#')[0].replace(/\/$/, '');
       
+      // Проверяем, есть ли уже этот пользователь в сети (например, переподключение или повторный вход)
+      for (const [oldSocketId, oldUser] of users.entries()) {
+        if (oldUser.nickname === nickname) {
+          const pending = disconnectTimeouts.get(oldSocketId);
+          if (pending) {
+            clearTimeout(pending.timeoutId);
+            disconnectTimeouts.delete(oldSocketId);
+            console.log(`[RECONNECT] Отменен таймаут отключения для ${nickname}`);
+          }
+          
+          const oldRoom = oldUser.room;
+          users.delete(oldSocketId);
+          socketKeys.delete(oldSocketId);
+
+          // Если комната изменилась, уведомляем участников старой комнаты
+          if (oldRoom !== room) {
+            const oldUsersInRoom = Array.from(users.values())
+              .filter(u => u.room === oldRoom && !u.isInvisible)
+              .map(u => ({
+                nickname: u.nickname,
+                badge: u.badge || null,
+                color: u.color || null
+              }));
+            broadcastToRoom(oldRoom, 'update_users', oldUsersInRoom);
+          }
+        }
+      }
+
       // Сохраняем сессионную информацию о пользователе
       users.set(socket.id, { 
         nickname, 
@@ -218,25 +249,37 @@ io.on('connection', (socket) => {
   // Отключение пользователя
   socket.on('disconnect', () => {
     const user = users.get(socket.id);
-    socketKeys.delete(socket.id);
-    
     if (user) {
       const { room, nickname } = user;
-      users.delete(socket.id);
-      socket.leave(room);
-      
-      console.log(`[-] ${nickname} отключился от комнаты: ${room}`);
+      console.log(`[-] Запланировано отключение ${nickname} от комнаты ${room} через 30 секунд`);
 
-      // Обновляем список участников для остальных
-      const usersInRoom = Array.from(users.values())
-        .filter(u => u.room === room && !u.isInvisible)
-        .map(u => ({
-          nickname: u.nickname,
-          badge: u.badge || null,
-          color: u.color || null
-        }));
+      const timeoutId = setTimeout(() => {
+        users.delete(socket.id);
+        socketKeys.delete(socket.id);
+        disconnectTimeouts.delete(socket.id);
 
-      broadcastToRoom(room, 'update_users', usersInRoom);
+        console.log(`[-] ${nickname} окончательно отключился от комнаты: ${room}`);
+
+        // Обновляем список участников для остальных
+        const usersInRoom = Array.from(users.values())
+          .filter(u => u.room === room && !u.isInvisible)
+          .map(u => ({
+            nickname: u.nickname,
+            badge: u.badge || null,
+            color: u.color || null
+          }));
+
+        broadcastToRoom(room, 'update_users', usersInRoom);
+      }, 30000);
+
+      disconnectTimeouts.set(socket.id, {
+        timeoutId,
+        nickname,
+        room
+      });
+    } else {
+      // Если у сокета не было юзера (например, отключился до dh_handshake или join_room), просто удаляем ключ
+      socketKeys.delete(socket.id);
     }
   });
 });

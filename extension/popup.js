@@ -27,7 +27,12 @@ const profileInvisibleCheckbox = document.getElementById('profile-invisible-chec
 const saveProfileBtn = document.getElementById('save-profile-btn');
 const cancelProfileBtn = document.getElementById('cancel-profile-btn');
 
-const usersList = document.getElementById('users-list');
+const usersListContainer = document.getElementById('users-list-container');
+const usersCountText = document.getElementById('users-count-text');
+const avatarListContainer = document.getElementById('avatar-list-container');
+const usersModal = document.getElementById('users-modal');
+const modalUsersList = document.getElementById('modal-users-list');
+const closeUsersModalBtn = document.getElementById('close-users-modal-btn');
 const messagesContainer = document.getElementById('messages-container');
 const messageInput = document.getElementById('message-input');
 const sendBtn = document.getElementById('send-btn');
@@ -237,7 +242,7 @@ function appendMessageToUi(msg, autoScroll = true) {
 function connectToChat(url, nickname) {
   showScreen('chat');
   messagesContainer.innerHTML = '';
-  usersList.textContent = 'Установка защищенного соединения...';
+  usersCountText.textContent = 'В сети: Подключение...';
 
   // Выводим имя домена в заголовок чата
   try {
@@ -330,12 +335,12 @@ function connectToChat(url, nickname) {
             socket.emit('join_room', joinPayload);
           } catch (err) {
             console.error('Ошибка рукопожатия:', err);
-            usersList.textContent = 'Ошибка шифрования';
+            usersCountText.textContent = 'В сети: Ошибка шифрования';
           }
         });
       } catch (err) {
         console.error('Ошибка инициализации ECDH:', err);
-        usersList.textContent = 'Ошибка инициализации шифрования';
+        usersCountText.textContent = 'В сети: Ошибка шифрования';
       }
     });
 
@@ -346,25 +351,72 @@ function connectToChat(url, nickname) {
         const decryptedStr = await decryptText(encryptedPayload, aesKey);
         const users = JSON.parse(decryptedStr);
         
-        // Рендерим список с бейджами и цветами
-        usersList.innerHTML = 'В сети: ';
-        users.forEach((u, index) => {
+        // 1. Обновляем счетчик
+        usersCountText.textContent = `В сети: ${users.length}`;
+
+        // 2. Очищаем контейнеры
+        avatarListContainer.innerHTML = '';
+        modalUsersList.innerHTML = '';
+
+        // 3. Рендерим аватарки (первые 5)
+        const maxAvatars = 5;
+        users.slice(0, maxAvatars).forEach((u) => {
           const isObj = typeof u === 'object' && u !== null;
           const nickname = isObj ? u.nickname : u;
           const badge = isObj ? u.badge : null;
           const color = isObj ? u.color : null;
 
-          const span = document.createElement('span');
-          span.textContent = `${badge ? badge + ' ' : ''}${nickname}`;
+          const avatar = document.createElement('div');
+          avatar.className = 'user-avatar-mini';
+          avatar.textContent = badge || nickname.charAt(0).toUpperCase();
           if (color) {
-            span.style.color = color;
-            span.style.fontWeight = 'bold';
+            avatar.style.backgroundColor = color;
           }
-          
-          if (index > 0) {
-            usersList.appendChild(document.createTextNode(', '));
+          avatarListContainer.appendChild(avatar);
+        });
+
+        // Если больше 5, добавляем индикатор "+N"
+        if (users.length > maxAvatars) {
+          const moreDiv = document.createElement('div');
+          moreDiv.className = 'user-avatar-mini more';
+          moreDiv.textContent = `+${users.length - maxAvatars}`;
+          avatarListContainer.appendChild(moreDiv);
+        }
+
+        // 4. Заполняем модальное окно всеми участниками
+        users.forEach((u) => {
+          const isObj = typeof u === 'object' && u !== null;
+          const nickname = isObj ? u.nickname : u;
+          const badge = isObj ? u.badge : null;
+          const color = isObj ? u.color : null;
+
+          const userRow = document.createElement('div');
+          userRow.style.display = 'flex';
+          userRow.style.alignItems = 'center';
+          userRow.style.gap = '10px';
+          userRow.style.padding = '8px 0';
+          userRow.style.borderBottom = '1px solid #f1f3f5';
+
+          const avatar = document.createElement('div');
+          avatar.className = 'user-avatar-mini';
+          avatar.style.border = 'none';
+          avatar.style.boxShadow = 'none';
+          avatar.textContent = badge || nickname.charAt(0).toUpperCase();
+          if (color) {
+            avatar.style.backgroundColor = color;
           }
-          usersList.appendChild(span);
+
+          const nameSpan = document.createElement('span');
+          nameSpan.textContent = `${badge ? badge + ' ' : ''}${nickname}`;
+          nameSpan.style.fontSize = '13px';
+          if (color) {
+            nameSpan.style.color = color;
+            nameSpan.style.fontWeight = 'bold';
+          }
+
+          userRow.appendChild(avatar);
+          userRow.appendChild(nameSpan);
+          modalUsersList.appendChild(userRow);
         });
       } catch (err) {
         console.error('Ошибка расшифровки списка участников:', err);
@@ -491,6 +543,24 @@ saveProfileBtn.addEventListener('click', () => {
 // Отмена изменений в профиле
 cancelProfileBtn.addEventListener('click', () => {
   showScreen('chat');
+});
+
+// Открытие модального окна участников
+usersListContainer.addEventListener('click', () => {
+  usersModal.style.display = 'flex';
+});
+
+// Закрытие модального окна
+closeUsersModalBtn.addEventListener('click', (e) => {
+  e.stopPropagation();
+  usersModal.style.display = 'none';
+});
+
+// Закрытие по клику вне модального контента
+usersModal.addEventListener('click', (e) => {
+  if (e.target === usersModal) {
+    usersModal.style.display = 'none';
+  }
 });
 
 sendBtn.addEventListener('click', sendMessage);
