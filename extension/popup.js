@@ -423,7 +423,12 @@ function connectToChat(url, nickname) {
 
     socket = io(SERVER_URL, { transports: ['websocket'] });
 
+    socket.on('disconnect', () => {
+      aesKey = null;
+    });
+
     socket.on('connect', async () => {
+      aesKey = null;
       try {
         // 1. Генерируем эфемерные ключи ECDH (кривая P-256)
         const keyPair = await window.crypto.subtle.generateKey(
