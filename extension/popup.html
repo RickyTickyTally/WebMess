@@ -210,26 +210,60 @@
       flex: 1;
       padding: 16px;
       overflow-y: auto;
-      background: #ffffff;
+      background: #f1f3f5;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
     }
     .message {
-      margin-bottom: 14px;
+      display: flex;
+      flex-direction: column;
+      max-width: 75%;
+      padding: 8px 12px;
+      border-radius: 12px;
+      box-shadow: 0 1px 2px rgba(0,0,0,0.08);
+      font-size: 13px;
+      position: relative;
     }
+    
+    /* Свои сообщения (справа) */
+    .message.self {
+      align-self: flex-end;
+      background-color: #d9fdd3;
+      color: #212529;
+      border-bottom-right-radius: 2px;
+    }
+    
+    /* Чужие сообщения (слева) */
+    .message.other {
+      align-self: flex-start;
+      background-color: #ffffff;
+      color: #212529;
+      border-bottom-left-radius: 2px;
+    }
+
     .message .author {
       font-weight: bold;
-      font-size: 12px;
+      font-size: 11px;
       color: #0d6efd;
-      margin-bottom: 4px;
+      margin-bottom: 3px;
+      display: flex;
+      align-items: center;
+      gap: 4px;
     }
+    
+    .message.self .author {
+      color: #157347;
+    }
+
     .message .time {
-      font-size: 10px;
+      font-size: 9px;
       color: #adb5bd;
-      margin-left: 6px;
-      font-weight: normal;
+      align-self: flex-end;
+      margin-top: 4px;
     }
+    
     .message .text {
-      font-size: 14px;
-      color: #212529;
       word-break: break-word;
       line-height: 1.4;
     }

@@ -209,18 +209,22 @@ function renderMessages(messages) {
 function appendMessageToUi(msg, autoScroll = true) {
   const { author, text, time, badge, color } = msg;
   const msgDiv = document.createElement('div');
-  msgDiv.className = 'message';
+  
+  // Определяем, наше ли это сообщение
+  const isSelf = author === currentNickname;
+  msgDiv.className = `message ${isSelf ? 'self' : 'other'}`;
   
   const date = new Date(time);
   const timeStr = `${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`;
   const safeText = text.replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
-  const badgeHtml = badge ? `<span class="badge" style="margin-right: 4px; padding: 2px 4px; background: #e9ecef; border-radius: 4px; font-size: 10px; font-weight: bold;">${badge}</span>` : '';
+  const badgeHtml = badge ? `<span class="badge" style="margin-right: 4px; padding: 2px 4px; background: rgba(0,0,0,0.06); border-radius: 4px; font-size: 9px; font-weight: bold; color: inherit;">${badge}</span>` : '';
   const nameStyle = color ? `style="color: ${color}; font-weight: bold;"` : '';
 
   msgDiv.innerHTML = `
-    <div class="author" ${nameStyle}>${badgeHtml}${author} <span class="time" style="color: #adb5bd; font-weight: normal; margin-left: 6px;">${timeStr}</span></div>
+    <div class="author" ${nameStyle}>${badgeHtml}${isSelf ? 'Вы' : author}</div>
     <div class="text">${safeText}</div>
+    <div class="time">${timeStr}</div>
   `;
   messagesContainer.appendChild(msgDiv);
   
