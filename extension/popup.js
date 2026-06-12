@@ -1419,11 +1419,11 @@ function updateGameMode(mode) {
   
   const desc = document.getElementById('game-mode-desc');
   if (mode === 'ffa') {
-    desc.textContent = 'FFA: Каждый сам за себя. Стреляйте во всех, зарабатывайте очки.';
+    desc.textContent = 'Змейка: Каждый сам за себя. Растите, поедая цветной корм. Не врезайтесь головой в тела других змеек!';
   } else if (mode === 'team') {
-    desc.textContent = 'TDM: Командный бой. Красные против Синих. Стреляйте по врагам.';
+    desc.textContent = 'TDM: Командный режим. Союзные змейки не убивают друг друга при столкновении. Вражеские змейки смертельно опасны.';
   } else if (mode === 'infection') {
-    desc.textContent = 'Инфекция: Один игрок стартует зомби (зеленый) и заражает людей касанием. Люди могут отбиваться стрельбой.';
+    desc.textContent = 'Инфекция: Зомби-змейки (зеленые) заражают касанием выживших (белых), обращая их в зомби.';
   }
 }
 
@@ -1465,6 +1465,9 @@ document.addEventListener('touchmove', (e) => {
 }, { passive: true });
 
 function startGame() {
+  if (document.body.classList.contains('mode-tab')) {
+    document.body.classList.add('game-fullscreen');
+  }
   isGameActive = true;
   gameStartOverlay.style.display = 'none';
   gameQuitBtn.style.display = 'block';
@@ -1520,6 +1523,7 @@ function startGame() {
 }
 
 function stopGame() {
+  document.body.classList.remove('game-fullscreen');
   isGameActive = false;
   gameStartOverlay.style.display = 'flex';
   gameQuitBtn.style.display = 'none';
@@ -1538,6 +1542,8 @@ function stopGame() {
     gameUpdateInterval = null;
   }
   
+  resizeCanvas();
+  
   if (socket && aesKey) {
     socket.emit('game_leave');
   }
@@ -1554,6 +1560,9 @@ function handleKeyDown(e) {
   if (e.code === 'Space') {
     isBoosting = true;
     e.preventDefault();
+  }
+  if (e.code === 'Escape') {
+    stopGame();
   }
 }
 
@@ -3041,7 +3050,12 @@ if (gameFullscreenBtn) {
 
 function resizeCanvas() {
   const isTab = document.body.classList.contains('mode-tab');
-  if (isTab) {
+  const isFullscreen = document.body.classList.contains('game-fullscreen');
+  
+  if (isFullscreen) {
+    gameCanvas.width = window.innerWidth;
+    gameCanvas.height = window.innerHeight;
+  } else if (isTab) {
     const rect = gamesScreen.getBoundingClientRect();
     gameCanvas.width = rect.width - 48;
     gameCanvas.height = rect.height - 110;
@@ -3051,11 +3065,7 @@ function resizeCanvas() {
   }
 }
 
-window.addEventListener('resize', () => {
-  if (isGameActive) {
-    resizeCanvas();
-  }
-});
+window.addEventListener('resize', resizeCanvas);
 
 // Слушатели событий кнопок запуска видео
 document.querySelectorAll('.relax-video-btn').forEach(btn => {

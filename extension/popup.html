@@ -184,6 +184,72 @@
       flex: 1;
       height: 100%;
     }
+
+    /* Quit button style in normal layout when inside canvas container */
+    #game-quit-btn {
+      position: absolute;
+      top: 10px;
+      right: 10px;
+      z-index: 10;
+    }
+
+    /* Fullscreen Game Mode overrides */
+    body.game-fullscreen #sidebar {
+      display: none !important;
+    }
+    body.game-fullscreen .header {
+      display: none !important;
+    }
+    body.game-fullscreen #games-panel-pvp {
+      padding: 0 !important;
+      margin: 0 !important;
+      gap: 0 !important;
+      overflow: hidden !important;
+      height: 100vh !important;
+      width: 100vw !important;
+      display: flex !important;
+      flex-direction: column !important;
+      justify-content: center !important;
+      align-items: center !important;
+    }
+    body.game-fullscreen #games-panel-pvp > :not(#game-canvas-container) {
+      display: none !important;
+    }
+    body.game-fullscreen #game-canvas-container {
+      width: 100vw !important;
+      height: 100vh !important;
+      margin: 0 !important;
+      padding: 0 !important;
+      display: flex !important;
+      justify-content: center !important;
+      align-items: center !important;
+    }
+    body.game-fullscreen #game-canvas {
+      width: 100vw !important;
+      height: 100vh !important;
+      border: none !important;
+      border-radius: 0 !important;
+      box-shadow: none !important;
+    }
+    body.game-fullscreen #game-start-overlay {
+      border-radius: 0 !important;
+    }
+    body.game-fullscreen #game-quit-btn {
+      display: block !important;
+      position: fixed !important;
+      top: 15px !important;
+      right: 15px !important;
+      z-index: 9999 !important;
+      opacity: 0.6;
+      transition: opacity 0.2s;
+      background: rgba(220, 53, 69, 0.8) !important;
+      border-radius: 6px !important;
+      padding: 8px 16px !important;
+      font-size: 13px !important;
+    }
+    body.game-fullscreen #game-quit-btn:hover {
+      opacity: 1;
+    }
     
     /* Боковая панель */
     #sidebar {
@@ -992,7 +1058,7 @@
         </div>
         <!-- Row 2: Scrollable sub-tabs -->
         <div class="game-sub-tabs-container" style="display: flex; gap: 6px; overflow-x: auto; width: 100%; padding-bottom: 4px; -webkit-overflow-scrolling: touch;">
-          <button id="game-tab-pvp" class="game-sub-tab active" style="padding: 4px 8px; font-size: 11px; border-radius: 4px; font-weight: bold; cursor: pointer; border: 1px solid var(--border-color); background: var(--tab-active-bg); color: var(--tab-active-text); outline: none; flex-shrink: 0;">PVP Арена</button>
+          <button id="game-tab-pvp" class="game-sub-tab active" style="padding: 4px 8px; font-size: 11px; border-radius: 4px; font-weight: bold; cursor: pointer; border: 1px solid var(--border-color); background: var(--tab-active-bg); color: var(--tab-active-text); outline: none; flex-shrink: 0;">Змейка</button>
           <button id="game-tab-clicker" class="game-sub-tab" style="padding: 4px 8px; font-size: 11px; border-radius: 4px; font-weight: bold; cursor: pointer; border: 1px solid var(--border-color); background: transparent; color: var(--text-color); outline: none; flex-shrink: 0;">Шахта (Clicker)</button>
           <button id="game-tab-relax" class="game-sub-tab" style="padding: 4px 8px; font-size: 11px; border-radius: 4px; font-weight: bold; cursor: pointer; border: 1px solid var(--border-color); background: transparent; color: var(--text-color); outline: none; flex-shrink: 0;">Релакс (ASMR)</button>
           <button id="game-tab-bottle" class="game-sub-tab" style="padding: 4px 8px; font-size: 11px; border-radius: 4px; font-weight: bold; cursor: pointer; border: 1px solid var(--border-color); background: transparent; color: var(--text-color); outline: none; flex-shrink: 0;">Бутылочка</button>
@@ -1023,25 +1089,27 @@
             <button class="game-mode-btn" data-mode="infection" style="flex: 1; padding: 6px; border-radius: 4px; border: 1px solid var(--border-color); font-size: 11px; cursor: pointer; transition: all 0.2s; font-weight: bold; text-align: center;">Инфекция</button>
           </div>
           <div id="game-mode-desc" style="font-size: 10px; color: var(--text-muted); margin-top: 5px; line-height: 1.3;">
-            FFA: Каждый сам за себя. Стреляйте во всех, зарабатывайте очки.
+            Змейка: Каждый сам за себя. Растите, поедая цветной корм. Не врезайтесь головой в тела других змеек!
           </div>
         </div>
 
         <!-- Игровое поле (Canvas) -->
-        <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; position: relative;">
+        <div id="game-canvas-container" style="display: flex; flex-direction: column; align-items: center; justify-content: center; position: relative;">
           <canvas id="game-canvas" width="370" height="230" style="border: 2px solid var(--border-color); background: #0b0914; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.3); cursor: crosshair; display: block; box-sizing: border-box;"></canvas>
           
           <!-- Оверлей информации о лобби внутри канваса, если игра не начата -->
           <div id="game-start-overlay" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.75); border-radius: 8px; display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 10px; color: white; padding: 20px; box-sizing: border-box; text-align: center;">
-            <div style="font-size: 16px; font-weight: bold; text-shadow: 0 2px 4px rgba(0,0,0,0.5);">PVP ARENA</div>
-            <div style="font-size: 12px; opacity: 0.8;">Выберите режим и войдите в бой. Если игроков мало, спавнятся боты.</div>
+            <div style="font-size: 16px; font-weight: bold; text-shadow: 0 2px 4px rgba(0,0,0,0.5);">ЗМЕЙКА</div>
+            <div style="font-size: 12px; opacity: 0.8;">Управляйте змейкой с помощью мыши. Зажмите левую кнопку мыши или Пробел для ускорения. Не врезайтесь в тела других змеек!</div>
             <button id="game-join-btn" style="padding: 8px 16px; background: #198754; color: white; border: none; border-radius: 6px; font-weight: bold; cursor: pointer; transition: opacity 0.2s;">Войти в игру</button>
           </div>
+          
+          <!-- Кнопка Выйти во время игры -->
+          <button id="game-quit-btn" style="background: #dc3545; color: white; border: none; border-radius: 4px; padding: 4px 10px; font-size: 11px; font-weight: bold; cursor: pointer; display: none;">Выйти</button>
         </div>
 
         <div style="display: flex; justify-content: space-between; align-items: center; font-size: 11px; color: var(--text-muted); padding: 0 4px;">
-          <span>Управление: <b>WASD/Стрелки</b> + <b>Клик мыши</b></span>
-          <button id="game-quit-btn" style="background: #dc3545; color: white; border: none; border-radius: 4px; padding: 4px 10px; font-size: 11px; font-weight: bold; cursor: pointer; display: none;">Выйти</button>
+          <span>Управление: <b>Движение мыши</b> (Змейка следует за курсором) + <b>Клик/Пробел</b> (Ускорение)</span>
         </div>
       </div>
 
@@ -1426,7 +1494,7 @@
             </select>
           </div>
           <div>
-            <label class="profile-field-label" style="font-size: 11px; margin-bottom: 4px; display: block;">Лимит ботов на арене</label>
+            <label class="profile-field-label" style="font-size: 11px; margin-bottom: 4px; display: block;">Лимит ботов в змейке</label>
             <div style="display: flex; align-items: center; gap: 10px;">
               <input type="number" id="room-bot-count-input" class="profile-input" min="0" max="10" placeholder="4" style="width: 60px; font-size: 12px; padding: 6px 8px; text-align: center;">
               <span style="font-size: 12px; color: var(--text-muted);">Сколько ботов спавнить в игре</span>
