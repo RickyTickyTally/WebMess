@@ -190,6 +190,12 @@ function showScreen(screenId) {
   const roomSettingsScreen = document.getElementById('room-settings-screen');
   if (roomSettingsScreen) roomSettingsScreen.style.display = 'none';
   document.getElementById(`${screenId}-screen`).style.display = 'flex';
+
+  if (screenId !== 'games') {
+    if (typeof stopRelaxVideo === 'function') {
+      stopRelaxVideo();
+    }
+  }
 }
 
 // Проверка URL на безопасность (Blacklist)
@@ -2339,14 +2345,45 @@ if (buyUpgradeQuantum) {
   });
 }
 
-// Переключение между PVP Ареной и Шахтой (кликером)
+// Переключение между PVP Ареной, Шахтой (кликером) и Релакс (ASMR)
 const gameTabPvp = document.getElementById('game-tab-pvp');
 const gameTabClicker = document.getElementById('game-tab-clicker');
+const gameTabRelax = document.getElementById('game-tab-relax');
 const gamesPanelPvp = document.getElementById('games-panel-pvp');
 const gamesPanelClicker = document.getElementById('games-panel-clicker');
+const gamesPanelRelax = document.getElementById('games-panel-relax');
 
-if (gameTabPvp && gameTabClicker) {
+const relaxVideoPlayer = document.getElementById('relax-video-player');
+const relaxPlayerPlaceholder = document.getElementById('relax-player-placeholder');
+
+const RELAX_VIDEOS = {
+  carpet: 'https://www.youtube.com/embed/PcrD4Z5jYgU?autoplay=1&mute=1&loop=1&playlist=PcrD4Z5jYgU',
+  soap: 'https://www.youtube.com/embed/V6_V9n5X4oQ?autoplay=1&mute=1&loop=1&playlist=V6_V9n5X4oQ',
+  subway: 'https://www.youtube.com/embed/42_xee_vjM0?autoplay=1&mute=1&loop=1&playlist=42_xee_vjM0',
+  sand: 'https://www.youtube.com/embed/qL_fH_xH5Jg?autoplay=1&mute=1&loop=1&playlist=qL_fH_xH5Jg'
+};
+
+function stopRelaxVideo() {
+  if (relaxVideoPlayer) {
+    relaxVideoPlayer.src = '';
+    relaxVideoPlayer.style.display = 'none';
+  }
+  if (relaxPlayerPlaceholder) {
+    relaxPlayerPlaceholder.style.display = 'flex';
+  }
+  
+  // Сбрасываем стили кнопок выбора видео
+  document.querySelectorAll('.relax-video-btn').forEach(btn => {
+    btn.style.background = 'var(--input-bg)';
+    btn.style.borderColor = 'var(--border-color)';
+    btn.style.color = 'var(--text-color)';
+  });
+}
+
+if (gameTabPvp && gameTabClicker && gameTabRelax) {
   gameTabPvp.addEventListener('click', () => {
+    stopRelaxVideo();
+
     gameTabPvp.classList.add('active');
     gameTabPvp.style.background = 'var(--tab-active-bg)';
     gameTabPvp.style.color = 'var(--tab-active-text)';
@@ -2354,12 +2391,19 @@ if (gameTabPvp && gameTabClicker) {
     gameTabClicker.classList.remove('active');
     gameTabClicker.style.background = 'transparent';
     gameTabClicker.style.color = 'var(--text-color)';
+
+    gameTabRelax.classList.remove('active');
+    gameTabRelax.style.background = 'transparent';
+    gameTabRelax.style.color = 'var(--text-color)';
     
     if (gamesPanelPvp) gamesPanelPvp.style.display = 'flex';
     if (gamesPanelClicker) gamesPanelClicker.style.display = 'none';
+    if (gamesPanelRelax) gamesPanelRelax.style.display = 'none';
   });
   
   gameTabClicker.addEventListener('click', () => {
+    stopRelaxVideo();
+
     gameTabClicker.classList.add('active');
     gameTabClicker.style.background = 'var(--tab-active-bg)';
     gameTabClicker.style.color = 'var(--tab-active-text)';
@@ -2367,10 +2411,60 @@ if (gameTabPvp && gameTabClicker) {
     gameTabPvp.classList.remove('active');
     gameTabPvp.style.background = 'transparent';
     gameTabPvp.style.color = 'var(--text-color)';
+
+    gameTabRelax.classList.remove('active');
+    gameTabRelax.style.background = 'transparent';
+    gameTabRelax.style.color = 'var(--text-color)';
     
     if (gamesPanelClicker) gamesPanelClicker.style.display = 'flex';
     if (gamesPanelPvp) gamesPanelPvp.style.display = 'none';
+    if (gamesPanelRelax) gamesPanelRelax.style.display = 'none';
     
     renderClickerLeaderboard(currentUsersInRoom);
   });
+
+  gameTabRelax.addEventListener('click', () => {
+    gameTabRelax.classList.add('active');
+    gameTabRelax.style.background = 'var(--tab-active-bg)';
+    gameTabRelax.style.color = 'var(--tab-active-text)';
+    
+    gameTabPvp.classList.remove('active');
+    gameTabPvp.style.background = 'transparent';
+    gameTabPvp.style.color = 'var(--text-color)';
+
+    gameTabClicker.classList.remove('active');
+    gameTabClicker.style.background = 'transparent';
+    gameTabClicker.style.color = 'var(--text-color)';
+    
+    if (gamesPanelRelax) gamesPanelRelax.style.display = 'flex';
+    if (gamesPanelPvp) gamesPanelPvp.style.display = 'none';
+    if (gamesPanelClicker) gamesPanelClicker.style.display = 'none';
+  });
 }
+
+// Слушатели событий кнопок запуска видео
+document.querySelectorAll('.relax-video-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    // Сбрасываем стили всех кнопок видео
+    document.querySelectorAll('.relax-video-btn').forEach(b => {
+      b.style.background = 'var(--input-bg)';
+      b.style.borderColor = 'var(--border-color)';
+      b.style.color = 'var(--text-color)';
+    });
+
+    // Выделяем активную кнопку
+    btn.style.background = 'var(--tab-active-bg)';
+    btn.style.borderColor = 'var(--accent-color)';
+    btn.style.color = 'var(--tab-active-text)';
+
+    const videoKey = btn.getAttribute('data-video');
+    const embedUrl = RELAX_VIDEOS[videoKey];
+    if (embedUrl && relaxVideoPlayer) {
+      relaxVideoPlayer.src = embedUrl;
+      relaxVideoPlayer.style.display = 'block';
+      if (relaxPlayerPlaceholder) {
+        relaxPlayerPlaceholder.style.display = 'none';
+      }
+    }
+  });
+});
