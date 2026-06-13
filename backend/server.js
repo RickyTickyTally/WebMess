@@ -71,7 +71,27 @@ const socketGameModes = new Map(); // socket.id -> mode ('ffa', 'team', 'infecti
 const MAX_FOODS = 1000;
 const FOOD_COLORS = ['#ff3333', '#33ff33', '#3333ff', '#ffff33', '#ff33ff', '#33ffff', '#ff9900', '#9900ff'];
 
-function createRandomFood() {
+const TOKEN_TYPES = ['speed', 'magnet', 'double'];
+const TOKEN_COLORS = {
+  speed: '#ffff00',   // Yellow
+  magnet: '#ff3366',  // Hot pink / Red
+  double: '#00ffff'   // Cyan
+};
+
+function createRandomFood(isForcedToken = false) {
+  const isToken = isForcedToken || (Math.random() < 0.05); // 5% chance
+  if (isToken) {
+    const tokenType = TOKEN_TYPES[Math.floor(Math.random() * TOKEN_TYPES.length)];
+    return {
+      id: 'token_' + Math.random().toString(36).substr(2, 9),
+      x: Math.random() * 4000,
+      y: Math.random() * 4000,
+      size: 10,
+      color: TOKEN_COLORS[tokenType],
+      isToken: true,
+      tokenType: tokenType
+    };
+  }
   return {
     id: 'food_' + Math.random().toString(36).substr(2, 9),
     x: Math.random() * 4000,

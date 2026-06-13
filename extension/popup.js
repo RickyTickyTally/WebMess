@@ -112,16 +112,22 @@ let localPlayer = {
   angle: 0,
   nickname: '',
   hp: 100,
-  score: 0,
+  score: 20,
   deaths: 0,
   team: 'ffa',
   infected: false,
   badge: '',
   color: '',
-  length: 5,
+  length: 20,
   body: [],
   history: []
 };
+let activePowerups = {
+  speed: 0,
+  magnet: 0,
+  double: 0
+};
+let lastLoopTime = 0;
 let gamePlayers = new Map();
 let gameProjectiles = [];
 let gameBots = [];
@@ -1500,11 +1506,15 @@ function startGame() {
   localPlayer.hp = 100;
   localPlayer.x = Math.random() * (MAP_SIZE - 200) + 100;
   localPlayer.y = Math.random() * (MAP_SIZE - 200) + 100;
-  localPlayer.score = 0;
+  localPlayer.score = 20;
   localPlayer.deaths = 0;
-  localPlayer.length = 5;
+  localPlayer.length = 20;
   localPlayer.body = [];
   localPlayer.history = [];
+  activePowerups.speed = 0;
+  activePowerups.magnet = 0;
+  activePowerups.double = 0;
+  lastLoopTime = 0;
   isBoosting = false;
   
   resizeCanvas();
@@ -1720,6 +1730,12 @@ function updateBots() {
   });
 }
 
+function updatePowerups(dt) {
+  if (activePowerups.speed > 0) activePowerups.speed = Math.max(0, activePowerups.speed - dt);
+  if (activePowerups.magnet > 0) activePowerups.magnet = Math.max(0, activePowerups.magnet - dt);
+  if (activePowerups.double > 0) activePowerups.double = Math.max(0, activePowerups.double - dt);
+}
+
 function infectTarget(target, zombieId) {
   if (currentGameMode !== 'infection') return;
   
@@ -1754,7 +1770,13 @@ function updateLocalPlayer() {
   
   // Boost logic
   const canBoost = isBoosting && localPlayer.length > 5;
-  const speed = canBoost ? 4.5 : 2.5;
+  let baseSpeed = 2.5;
+  let boostSpeed = 4.5;
+  if (activePowerups.speed > 0) {
+    baseSpeed *= 1.5;
+    boostSpeed *= 1.5;
+  }
+  const speed = canBoost ? boostSpeed : baseSpeed;
   
   localPlayer.x += Math.cos(localPlayer.angle) * speed;
   localPlayer.y += Math.sin(localPlayer.angle) * speed;
@@ -1788,7 +1810,10 @@ function updateLocalPlayer() {
   }
   
   localPlayer.body = [];
-  const spacing = canBoost ? 4 : 7;
+  let spacing = canBoost ? 4 : 7;
+  if (activePowerups.speed > 0) {
+    spacing = canBoost ? 3 : 5;
+  }
   for (let i = 0; i < localPlayer.length; i++) {
     const idx = i * spacing;
     if (idx < localPlayer.history.length) {
@@ -1804,6 +1829,20 @@ function updateLocalPlayer() {
 function checkFoodCollisions() {
   if (localPlayer.hp <= 0) return;
   
+  // Magnet power-up pulls food closer
+  if (activePowerups.magnet > 0) {
+    gameFoods.forEach(food => {
+      const dx = localPlayer.x - food.x;
+      const dy = localPlayer.y - food.y;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      if (dist < 150 && dist > 5) {
+        const force = (150 - dist) / 10 + 2;
+        food.x += (dx / dist) * force;
+        food.y += (dy / dist) * force;
+      }
+    });
+  }
+  
   // 1. Local player vs food
   for (let i = gameFoods.length - 1; i >= 0; i--) {
     const food = gameFoods[i];
@@ -1813,9 +1852,20 @@ function checkFoodCollisions() {
     
     if (dist < 10 + (food.size || 4)) {
       // Eat food!
-      const points = Math.max(1, Math.floor((food.size || 4) / 2));
-      localPlayer.length += points;
-      localPlayer.score += Math.round(food.size || 4);
+      if (food.isToken) {
+        if (food.tokenType === 'speed') {
+          activePowerups.speed = 15000;
+        } else if (food.tokenType === 'magnet') {
+          activePowerups.magnet = 20000;
+        } else if (food.tokenType === 'double') {
+          activePowerups.double = 20000;
+        }
+      } else {
+        const multiplier = activePowerups.double > 0 ? 2 : 1;
+        const points = Math.max(1, Math.floor((food.size || 4) / 2)) * multiplier;
+        localPlayer.length += points;
+        localPlayer.score += Math.round(food.size || 4) * multiplier;
+      }
       
       // Emit to server
       if (socket && aesKey) {
@@ -1912,9 +1962,14 @@ function checkSnakeCollisions() {
       localPlayer.hp = 100;
       localPlayer.x = Math.random() * (MAP_SIZE - 200) + 100;
       localPlayer.y = Math.random() * (MAP_SIZE - 200) + 100;
-      localPlayer.length = 5;
+      localPlayer.length = 20;
+      localPlayer.score = 20;
       localPlayer.body = [];
       localPlayer.history = [];
+      activePowerups.speed = 0;
+      activePowerups.magnet = 0;
+      activePowerups.double = 0;
+      lastLoopTime = 0;
     }, 2000);
     return; // Don't proceed to infection checks if died
   }
@@ -2142,13 +2197,48 @@ function drawGame() {
         food.y > localPlayer.y + gameCanvas.height / 2 + 20) {
       return;
     }
-    gameCtx.beginPath();
-    gameCtx.arc(food.x, food.y, food.size || 4, 0, Math.PI * 2);
-    gameCtx.fillStyle = food.color || '#ff00ff';
-    gameCtx.shadowColor = food.color || '#ff00ff';
-    gameCtx.shadowBlur = 6;
-    gameCtx.fill();
-    gameCtx.shadowBlur = 0;
+    
+    if (food.isToken) {
+      const radius = 10;
+      
+      // Draw outer glowing pulsing rings
+      const pulse = 1 + Math.abs(Math.sin(Date.now() / 200)) * 0.3;
+      gameCtx.beginPath();
+      gameCtx.arc(food.x, food.y, radius * pulse, 0, Math.PI * 2);
+      gameCtx.strokeStyle = food.color || '#ffff00';
+      gameCtx.lineWidth = 1.5;
+      gameCtx.shadowColor = food.color || '#ffff00';
+      gameCtx.shadowBlur = 8;
+      gameCtx.stroke();
+      gameCtx.shadowBlur = 0;
+      
+      // Draw token base circle
+      gameCtx.beginPath();
+      gameCtx.arc(food.x, food.y, radius, 0, Math.PI * 2);
+      gameCtx.fillStyle = 'rgba(11, 9, 20, 0.9)';
+      gameCtx.strokeStyle = food.color || '#ffff00';
+      gameCtx.lineWidth = 1.5;
+      gameCtx.fill();
+      gameCtx.stroke();
+      
+      // Draw emoji inside
+      let emoji = '⚡';
+      if (food.tokenType === 'magnet') emoji = '🧲';
+      else if (food.tokenType === 'double') emoji = '⭐';
+      
+      gameCtx.font = '10px sans-serif';
+      gameCtx.textAlign = 'center';
+      gameCtx.textBaseline = 'middle';
+      gameCtx.fillText(emoji, food.x, food.y + 0.5);
+    } else {
+      gameCtx.beginPath();
+      gameCtx.arc(food.x, food.y, food.size || 4, 0, Math.PI * 2);
+      gameCtx.fillStyle = food.color || '#ff00ff';
+      gameCtx.shadowColor = food.color || '#ff00ff';
+      gameCtx.shadowBlur = 6;
+      gameCtx.fill();
+      gameCtx.shadowBlur = 0;
+    }
   });
   
   // Draw Bots
@@ -2228,6 +2318,9 @@ function drawGame() {
 
   // Draw Leaderboard
   drawLeaderboard();
+  
+  // Draw Power-ups HUD
+  drawPowerupsHUD();
 }
 
 function drawSnake(snake, isSelf = false) {
@@ -2355,6 +2448,90 @@ function drawLeaderboard() {
   }
 }
 
+function drawPowerupsHUD() {
+  const activeList = [];
+  if (activePowerups.speed > 0) {
+    activeList.push({
+      type: 'speed',
+      name: '⚡ Ускорение +50%',
+      color: '#ffff00',
+      duration: activePowerups.speed,
+      maxDuration: 15000
+    });
+  }
+  if (activePowerups.magnet > 0) {
+    activeList.push({
+      type: 'magnet',
+      name: '🧲 Магнит еды',
+      color: '#ff3366',
+      duration: activePowerups.magnet,
+      maxDuration: 20000
+    });
+  }
+  if (activePowerups.double > 0) {
+    activeList.push({
+      type: 'double',
+      name: '⭐ Удвоение очков',
+      color: '#00ffff',
+      duration: activePowerups.double,
+      maxDuration: 20000
+    });
+  }
+
+  if (activeList.length === 0) return;
+
+  const startX = 20;
+  let startY = 20;
+  const cardWidth = 120;
+  const cardHeight = 30;
+  const gap = 6;
+
+  activeList.forEach((powerup) => {
+    // Draw background card (semi-transparent glassmorphism)
+    gameCtx.fillStyle = 'rgba(11, 9, 20, 0.75)';
+    gameCtx.fillRect(startX, startY, cardWidth, cardHeight);
+    
+    // Draw border
+    gameCtx.strokeStyle = 'rgba(128, 90, 213, 0.3)';
+    gameCtx.lineWidth = 1;
+    gameCtx.strokeRect(startX, startY, cardWidth, cardHeight);
+    
+    // Draw active indicator line on the left side of the card
+    gameCtx.fillStyle = powerup.color;
+    gameCtx.fillRect(startX, startY, 3, cardHeight);
+
+    // Draw text: powerup name
+    gameCtx.fillStyle = '#ffffff';
+    gameCtx.font = 'bold 8px sans-serif';
+    gameCtx.textAlign = 'left';
+    gameCtx.textBaseline = 'top';
+    gameCtx.fillText(powerup.name, startX + 8, startY + 5);
+
+    // Draw text: remaining duration
+    const secondsLeft = (powerup.duration / 1000).toFixed(1) + 's';
+    gameCtx.fillStyle = 'rgba(255, 255, 255, 0.7)';
+    gameCtx.font = '7px sans-serif';
+    gameCtx.textAlign = 'right';
+    gameCtx.fillText(secondsLeft, startX + cardWidth - 8, startY + 5);
+
+    // Draw progress bar background
+    const barX = startX + 8;
+    const barY = startY + 18;
+    const barWidth = cardWidth - 16;
+    const barHeight = 3;
+    gameCtx.fillStyle = 'rgba(255, 255, 255, 0.15)';
+    gameCtx.fillRect(barX, barY, barWidth, barHeight);
+
+    // Draw progress bar fill (using active duration ratio)
+    const progressRatio = Math.max(0, Math.min(1, powerup.duration / powerup.maxDuration));
+    const fillWidth = barWidth * progressRatio;
+    gameCtx.fillStyle = powerup.color;
+    gameCtx.fillRect(barX, barY, fillWidth, barHeight);
+
+    startY += cardHeight + gap;
+  });
+}
+
 async function sendGameJoin() {
   if (socket && aesKey) {
     try {
@@ -2413,8 +2590,26 @@ async function sendGameModeChange(mode) {
   }
 }
 
-function gameLoop() {
+function updatePowerups(dt) {
+  if (activePowerups.speed > 0) {
+    activePowerups.speed = Math.max(0, activePowerups.speed - dt);
+  }
+  if (activePowerups.magnet > 0) {
+    activePowerups.magnet = Math.max(0, activePowerups.magnet - dt);
+  }
+  if (activePowerups.double > 0) {
+    activePowerups.double = Math.max(0, activePowerups.double - dt);
+  }
+}
+
+function gameLoop(timestamp) {
   if (!isGameActive) return;
+  
+  if (!lastLoopTime) lastLoopTime = timestamp;
+  const dt = timestamp - lastLoopTime;
+  lastLoopTime = timestamp;
+
+  updatePowerups(dt);
   
   manageBots();
   updateLocalPlayer();
